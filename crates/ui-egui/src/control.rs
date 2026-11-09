@@ -683,7 +683,7 @@ fn dispatch(app: &mut EvoPhotoApp, ctx: &egui::Context, req: &ControlRequest) ->
                     None => None,
                 };
 
-                let bridge_pro = matches!(theme.unwrap_or(app.ui.theme), crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+                let bridge_pro = crate::panel_docking::pro_grammar(theme.unwrap_or(app.ui.theme));
                 let legacy_update = crate::panel_docking::prepare_legacy_update(app, p, panels.as_ref(), dock_tabs.as_ref(), dock.as_ref(), bridge_pro)?;
 
                 // Apply (nothing below can fail).

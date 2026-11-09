@@ -1713,6 +1713,70 @@ pub fn apply_workspace(app: &mut EvoPhotoApp) {
     if !app.ui.timeline.open {
         app.ui.timeline.playing = false;
     }
+    if app.ui.theme.is_slim() && is_essentials(&app.ui.workspace) {
+        evora_essentials(app);
+    }
+}
+
+/// Whether `workspace` gets the Essentials preset: any name but the other built-in presets
+/// (saved workspaces never reach [`apply_workspace`]'s presets).
+fn is_essentials(workspace: &str) -> bool {
+    !matches!(workspace, "Photography" | "Painting" | "Graphic and Web" | "Pixel Art" | "Motion")
+}
+
+/// Evora build (patch LUM-18): Essentials under the Evora themes. The Navigator group first, on
+/// its Navigator tab with Histogram one click away (Info hidden; Window › Info brings it back):
+/// on the web the histogram is counted on the UI thread, every 250 ms while the document
+/// changes, so it is not shown by default. Then the docked Properties, History, and Layers, the
+/// last expanded group, which fills the column as upstream's Essentials has it (#147); Color
+/// present but collapsed to its tab strip. Order, tab and collapse only: no new panel, label or
+/// height.
+fn evora_essentials(app: &mut EvoPhotoApp) {
+    use crate::dock::Group;
+    let pro = app.ui.theme.is_pro();
+    let dock = &mut app.ui.dock;
+    dock.order = vec![Group::Navigator, Group::Properties, Group::History, Group::Layers, Group::Color];
+    dock.set_collapsed(Group::Color, true);
+    dock.hide_tab(Group::Navigator, 2, pro);
+    app.ui.dock_tabs.navigator = 0;
+    let p = &mut app.ui.panels;
+    p.navigator = true;
+    p.properties = true;
+    p.layers = true;
+    p.history = true;
+    p.color = true;
+}
+
+/// Evora build (patch LUM-18): once a session, the first time an Evora theme draws the dock, a
+/// layout still exactly upstream's default Essentials (what a member who never moved a panel has
+/// remembered in `panelLayout`) becomes Evora's; any layout the member changed, or locked
+/// (Window › Workspace › Lock Workspace), is kept.
+pub(crate) fn seed_evora_workspace(app: &mut EvoPhotoApp, ctx: &egui::Context) {
+    let seeded = egui::Id::new("evora-workspace-seeded");
+    if !app.ui.theme.is_slim() || ctx.data(|d| d.get_temp::<bool>(seeded)).unwrap_or(false) {
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(seeded, true));
+    if upstream_essentials(app) {
+        evora_essentials(app);
+    }
+}
+
+/// The dock exactly as upstream's Essentials leaves it (the Color group's selected tab aside: its
+/// index swaps meaning with the theme).
+fn upstream_essentials(app: &EvoPhotoApp) -> bool {
+    let ui = &app.ui;
+    let p = &ui.panels;
+    is_essentials(&ui.workspace)
+        && !app.session.prefs().workspace_locked
+        && !app.session.prefs().workspaces.contains_key(&ui.workspace)
+        && ui.dock == crate::dock::DockLayout::default()
+        && ui.dock_tabs == crate::state::DockTabs { color: ui.dock_tabs.color, ..Default::default() }
+        && ui.docking.is_none()
+        && ui.docking_hidden.is_empty()
+        && ui.docking_collapsed.is_empty()
+        && !ui.timeline.open
+        && (p.navigator, p.color, p.layers, p.history, p.properties, p.character, p.brushes) == (false, true, true, false, true, false, false)
 }
 
 #[cfg(test)]

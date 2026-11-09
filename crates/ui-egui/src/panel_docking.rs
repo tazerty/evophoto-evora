@@ -52,6 +52,13 @@ fn cancel_legacy_drag(app: &mut EvoPhotoApp, ctx: &egui::Context) -> bool {
     }
 }
 
+/// The Pro grammar of the custom dock (docked Properties, the Color group's Pro tab order):
+/// upstream's two dark Pro levels, and, Evora build (patch LUM-18), the Evora themes, whose tokens
+/// are Pro. The light Pro levels keep upstream's behaviour here.
+pub(crate) fn pro_grammar(theme: crate::theme::ThemeKind) -> bool {
+    matches!(theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium) || theme.is_slim()
+}
+
 pub(crate) fn normalize(raw: &str) -> Option<&'static str> {
     PANELS.iter().find(|(id, label, _)| id.eq_ignore_ascii_case(raw.trim()) || label.eq_ignore_ascii_case(raw.trim())).map(|p| p.0)
 }
@@ -65,7 +72,7 @@ fn legacy(app: &EvoPhotoApp) -> Layout<String> {
 }
 
 fn legacy_layout(app: &EvoPhotoApp, all: bool) -> Layout<String> {
-    let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+    let pro = pro_grammar(app.ui.theme);
     let mut layout = Layout::default();
     for group in app.ui.dock.order().into_iter().rev().filter(|g| all || g.shown(&app.ui.panels)) {
         let labels = group.tabs(pro);
@@ -113,7 +120,7 @@ fn collapsed_members(app: &EvoPhotoApp, layout: &Layout<String>) -> std::collect
             Node::Tabs { panels, .. } => {
                 let group = panels.first().and_then(|id| PANELS.iter().find(|p| p.0 == id)).map(|p| p.2);
                 if let Some(group) = group.filter(|group| app.ui.dock.is_collapsed(*group)) {
-                    let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+                    let pro = pro_grammar(app.ui.theme);
                     let native: Vec<_> = app.ui.dock.visible_tabs(group, pro).iter().filter_map(|(_, name)| normalize(name)).collect();
                     if panels.len() == native.len() && panels.iter().all(|panel| native.contains(&panel.as_str())) {
                         collapsed.extend(panels.iter().cloned());
@@ -613,7 +620,7 @@ pub(crate) fn rail_click(app: &mut EvoPhotoApp, group: Group) {
     let existing = PANELS.iter().find(|p| p.2 == group && layout.contains(&p.0.to_owned())).map(|p| p.0);
     let panel = existing.or_else(|| {
         group
-            .tabs(matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium))
+            .tabs(pro_grammar(app.ui.theme))
             .get(*group.tab_mut(&mut app.ui.dock_tabs))
             .and_then(|label| normalize(label))
     });
@@ -953,7 +960,7 @@ pub(crate) fn sync_visibility(app: &mut EvoPhotoApp) {
         if !valid(layout) {
             return;
         }
-        let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+        let pro = pro_grammar(app.ui.theme);
         for group in Group::ALL {
             *group.shown_mut(&mut app.ui.panels) = PANELS.iter().filter(|p| p.2 == group).any(|p| layout.contains(&p.0.to_owned()));
             for (index, label) in group.tabs(pro).iter().enumerate() {
