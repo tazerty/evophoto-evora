@@ -211,18 +211,23 @@ pub fn pro_tabs(ui: &mut Ui, id: egui::Id, strip: Rect, menu_left: f32, tabs: &[
     let t = Tokens::get(ui.ctx());
     let area = Rect::from_min_max(strip.min, pos2(menu_left.max(strip.left()), strip.bottom()));
     let sel = *selected;
+    let font = if t.slim() { theme::medium(12.0) } else { egui::FontId::proportional(11.5) };
     tabs_in(
         ui,
         id,
         area,
         tabs,
         selected,
-        egui::FontId::proportional(11.5),
+        font,
         22.0,
         40.0,
         reorderable,
         |i| i == sel && !collapsed,
         |ui, r, i, _, galley, resp, active| {
+            if t.slim() {
+                underlined_tab(ui, &t, r, galley, resp, active);
+                return;
+            }
             if active {
                 ui.painter().rect_filled(r, CornerRadius { nw: if i == 0 { 3 } else { 0 }, ne: 0, sw: 0, se: 0 }, t.card);
             } else if resp.hovered() {
@@ -250,12 +255,16 @@ pub fn pill_tabs(ui: &mut Ui, id: egui::Id, area: Rect, tabs: &[&str], selected:
         area,
         tabs,
         selected,
-        theme::medium(12.5),
+        theme::medium(if t.slim() { 12.0 } else { 12.5 }),
         20.0,
         44.0,
         reorderable,
         |i| i == sel,
         |ui, r, _, _, galley, resp, active| {
+            if t.slim() {
+                underlined_tab(ui, &t, r, galley, resp, active);
+                return;
+            }
             // 2 pt between pills, as the old horizontal layout had.
             let r = Rect::from_min_max(r.min, pos2((r.right() - 2.0).max(r.left()), r.bottom()));
             if active {
@@ -270,6 +279,23 @@ pub fn pill_tabs(ui: &mut Ui, id: egui::Id, area: Rect, tabs: &[&str], selected:
             ui.painter().with_clip_rect(r.intersect(ui.clip_rect())).galley_with_override_text_color(r.center() - galley.size() / 2.0, galley, color);
         },
     )
+}
+
+/// Evora build (patch LUM-18): a tab in Evora's graphite grammar: no fill, its label bright when
+/// active over a 2 pt accent line along the strip's bottom, dim otherwise (lighter when hovered).
+fn underlined_tab(ui: &Ui, t: &Tokens, r: Rect, galley: std::sync::Arc<egui::Galley>, resp: &Response, active: bool) {
+    let color = if active {
+        t.graphite().text_hi
+    } else if resp.hovered() {
+        t.text_dim
+    } else {
+        t.text_faint
+    };
+    let painter = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
+    if active {
+        painter.rect_filled(Rect::from_min_max(pos2(r.left(), r.bottom() - 2.0), r.max), 0.0, t.accent);
+    }
+    painter.galley_with_override_text_color(r.center() - galley.size() / 2.0, galley, color);
 }
 
 #[cfg(test)]

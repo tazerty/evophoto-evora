@@ -104,7 +104,8 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             // Toolbar width is a user preference, not a Pro-only feature.
             // Keep the same hit target in every theme (including RTL layouts).
-            let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
+            // Evora build (patch LUM-18): a 24 pt target (WCAG 2.5.8) under the Evora themes.
+            let (cr, resp) = ui.allocate_exact_size(vec2(bx, if t.slim() { 24.0 } else { 14.0 }), Sense::click());
             let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
             icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
@@ -114,7 +115,8 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
             ui.add_space(4.0);
             // Subtle violet wash at the bottom of the toolbar.
             let full = ui.max_rect();
-            if !t.bevel && !t.pro && t.dark() {
+            // Evora build (patch LUM-18): never under Evora's graphite grammar (no decorative wash).
+            if !t.bevel && !t.pro && !t.slim() && t.dark() {
                 let mut mesh = egui::Mesh::default();
                 let r = Rect::from_min_max(pos2(full.left() - 7.0, full.bottom() - 260.0), pos2(full.right() + 7.0, full.bottom() + 8.0));
                 let top = Color32::TRANSPARENT;
@@ -683,6 +685,9 @@ pub fn title_bar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
                     } else {
                         0
                     };
+                    // Evora build (patch LUM-18): no appearance toggle under the Evora themes, whose
+                    // light or dark mode comes from the host (evora:init, evora:theme).
+                    let icons_shown = if t.slim() { icons_shown.min(1) } else { icons_shown };
                     let ws_width = (room - f32::from(icons_shown) * ICON_SLOT - 6.0).clamp(WORKSPACE_MIN, 130.0);
                     if room >= WORKSPACE_MIN && widgets::dropdown(ui, "workspace", &mut ws, &opts, ws_width) {
                         app.ui.workspace = ws;
@@ -979,7 +984,9 @@ pub fn options_bar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
                 // Include its gutter in the container layout, including right-aligned actions.
                 egui::Frame::NONE.inner_margin(egui::Margin { right: 2, ..Default::default() }).show(ui, |ui| {
                     crate::direction::horizontal_centered(ui, |ui| {
-                        if t.pro {
+                        // Evora build (patch LUM-18): no upstream Home button under the Evora themes
+                        // (the host's shell leads home).
+                        if t.pro && !t.slim() {
                             crate::chrome_ui::home_button(app, ui);
                             widgets::vline(ui, 22.0);
                         }
@@ -1661,7 +1668,14 @@ fn hint(ui: &mut egui::Ui, s: &str) {
 /// The status bar's height and the height of the controls in it (zoom field, Fit), which leaves
 /// them an even margin above and below inside the bar (#2823).
 pub fn status_bar_heights(t: &Tokens) -> (f32, f32) {
-    if t.pro { (24.0, 18.0) } else { (30.0, 22.0) }
+    // Evora build (patch LUM-18): 24 pt controls (WCAG 2.5.8) under the Evora themes.
+    if t.slim() {
+        (30.0, 24.0)
+    } else if t.pro {
+        (24.0, 18.0)
+    } else {
+        (30.0, 22.0)
+    }
 }
 
 pub fn status_bar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
@@ -1750,7 +1764,9 @@ pub fn right_dock(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
                 // The separator is on the canvas side.
                 let r = ui.max_rect();
                 let x = if crate::direction::is_rtl() { r.right() + 6.0 } else { r.left() - 6.0 };
-                ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
+                // Evora build (patch LUM-18): the structure line between panels under the Evora themes.
+                let line = if t.slim() { t.card_border } else { t.separator };
+                ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, line));
                 ui.spacing_mut().item_spacing.y = 4.0;
                 use crate::dock::Group;
                 let entries: [(&str, &str, Group); 6] = [
@@ -3183,9 +3199,16 @@ fn layer_row(
     if resp.hovered() {
         app.hover_layer = Some(l.id);
     }
+    // Evora build (patch LUM-18): the text a selected row shows dimmed (a hidden layer's name, the
+    // clipping arrow) takes the label grey under the Evora themes: the secondary grey falls to
+    // 3.87:1 on the selected grey.
+    let faint = if selected && t.slim() { t.text_dim } else { t.text_faint };
     if t.pro {
         if selected {
             painter.rect_filled(rect, 0.0, t.row_selected);
+        } else if is_hovered && t.slim() {
+            // Evora build (patch LUM-18): the plain hover grey, no wash of the member's colour.
+            painter.rect_filled(rect, 0.0, t.hover);
         } else if is_hovered {
             painter.rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
             painter.rect_filled(rect, 0.0, t.accent.gamma_multiply(0.12));
@@ -3244,7 +3267,7 @@ fn layer_row(
     x += 28.0 + crate::layer_row_ui::indent(steps, rect.width(), fixed);
     let toggled = crate::layer_tree_ui::disclosure(ui, rect, &mut x, l, actions);
     if l.clipped {
-        paint_clipping_indicator(&painter, pos2(x, rect.center().y), t.text_faint);
+        paint_clipping_indicator(&painter, pos2(x, rect.center().y), faint);
         x += 12.0;
     }
     let thumb = Rect::from_min_size(pos2(x, rect.center().y - ts / 2.0), vec2(ts, ts));
@@ -3287,7 +3310,7 @@ fn layer_row(
     {
         actions.push(simple_lock_toggle(doc.is_background(l.id), l, &json!({"layer": l.id.0})));
     }
-    let name_color = if l.visible { t.text } else { t.text_faint };
+    let name_color = if l.visible { t.text } else { faint };
     let font = if selected && !t.pro { theme::medium(13.0) } else { egui::FontId::proportional(if t.pro { 12.0 } else { 13.0 }) };
     // Photoshop before 2026 set the Background layer's name in italics; 2026 sets it upright.
     let italic = !t.pro && doc.is_background(l.id);
@@ -3577,7 +3600,8 @@ fn history(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
             if selected {
                 ui.painter().rect_filled(rect, if t.pro { 0.0 } else { t.radius_sm }, if t.pro { t.row_selected } else { t.accent_soft });
             } else if resp.hovered() {
-                ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
+                // Evora build (patch LUM-18): the full hover grey under the Evora themes.
+                ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(if t.slim() { 1.0 } else { 0.5 }));
             }
             let icon = match e.as_str() {
                 s if s.contains("Brush") || s.contains("Eraser") => "brush",
@@ -3777,7 +3801,8 @@ fn snapshot_rows(app: &mut EvoPhotoApp, ui: &mut egui::Ui, selected: Option<u64>
         if is_selected {
             ui.painter().rect_filled(rect, if t.pro { 0.0 } else { t.radius_sm }, if t.pro { t.row_selected } else { t.accent_soft });
         } else if resp.hovered() {
-            ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
+            // Evora build (patch LUM-18): the full hover grey under the Evora themes.
+            ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(if t.slim() { 1.0 } else { 0.5 }));
         }
         let thumb = Rect::from_min_size(pos2(rect.left() + 28.0, rect.center().y - 14.0), vec2(28.0, 28.0));
         widgets::checker(ui.painter(), thumb, 4.0);

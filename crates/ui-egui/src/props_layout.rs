@@ -77,6 +77,9 @@ pub fn header(ui: &mut egui::Ui, layer: &Layer) {
 /// Every Properties section uses this, so headers look and behave alike.
 pub fn section(ui: &mut egui::Ui, id: &str, title: &str) -> bool {
     let t = Tokens::get(ui.ctx());
+    if t.slim() {
+        return section_ex(ui, id, title, |_| {});
+    }
     let key = egui::Id::new(("props-section", id));
     let mut open = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(true);
     ui.add_space(theme::ROW_GAP);
@@ -102,6 +105,55 @@ pub fn section(ui: &mut egui::Ui, id: &str, title: &str) -> bool {
     record(ui.ctx(), title, r);
     if open {
         ui.add_space(theme::ROW_GAP / 2.0);
+    }
+    open
+}
+
+/// Evora build (patch LUM-18): height of a section header in Evora's graphite grammar.
+const SLIM_SECTION_H: f32 = 26.0;
+
+/// Evora build (patch LUM-18): [`section`]'s header in Evora's graphite grammar, which every
+/// section takes under the Evora themes: a 26 pt band under a 1 pt structure line, a 12 pt
+/// chevron at the start, the title in 12 pt semibold, and `actions` (icon buttons, laid out from
+/// the end) at the end of the band. Same open state, accessibility and record as [`section`].
+pub fn section_ex(ui: &mut egui::Ui, id: &str, title: &str, actions: impl FnOnce(&mut egui::Ui)) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let gx = t.graphite();
+    let key = egui::Id::new(("props-section", id));
+    let mut open = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(true);
+    ui.add_space(theme::ROW_GAP);
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), SLIM_SECTION_H), Sense::click());
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    ui.painter().rect_filled(r, 0.0, if resp.hovered() { gx.section_hover } else { gx.section });
+    // The structure line as the band's own top point row, crisp (a 1 pt stroke centred on a pixel
+    // edge spreads over two rows).
+    ui.painter().rect_filled(Rect::from_min_max(r.left_top(), pos2(r.right(), r.top() + 1.0)), 0.0, gx.rule);
+    // Keyboard focus (WCAG 2.4.7): the bright grey ring, the accent falling under 3:1 on the band.
+    if resp.has_focus() {
+        widgets::slim_focus_ring(ui, r, &t);
+    }
+    crate::icons::paint(
+        ui,
+        Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(12.0, 12.0)),
+        if open { "chevron-down" } else { "chevron-right" },
+        12.0,
+        t.text_dim,
+    );
+    ui.painter().text(pos2(r.left() + 24.0, r.center().y), egui::Align2::LEFT_CENTER, tl!(title), theme::semibold(12.0), t.text);
+    // Drawn after the band, so its buttons take their own clicks.
+    let mut actions_ui = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(4.0, 1.0))).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    actions(&mut actions_ui);
+    if resp.clicked() {
+        open = !open;
+        ui.data_mut(|d| d.insert_temp(key, open));
+    }
+    let label = title.to_string();
+    resp.widget_info(move || egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, &label));
+    record(ui.ctx(), title, r);
+    if open {
+        ui.add_space(theme::ROW_GAP);
     }
     open
 }

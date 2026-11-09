@@ -19,13 +19,35 @@ fn white_icons() -> &'static SvgIconSet {
     MAP.get_or_init(|| SvgIconSet::new(ICONS, SvgStyle { current_color: "#ffffff", stroke_width: Some("1.75") }, "bytes://icons/", "square"))
 }
 
+/// Evora build (patch LUM-18): the same icons with a 1.5 stroke for Evora's graphite grammar,
+/// under their own URI prefix (egui caches images by URI).
+fn slim_icons() -> &'static SvgIconSet {
+    static MAP: OnceLock<SvgIconSet> = OnceLock::new();
+    MAP.get_or_init(|| SvgIconSet::new(ICONS, SvgStyle { current_color: "#ffffff", stroke_width: Some("1.5") }, "bytes://icons-slim/", "square"))
+}
+
+thread_local! {
+    /// Evora build (patch LUM-18): whether the applied theme is an Evora one ([`Tokens::slim`]),
+    /// set by [`crate::theme::apply`].
+    static SLIM: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Evora build (patch LUM-18): draw icons from the thin set (`on`) or upstream's.
+pub(crate) fn set_slim(on: bool) {
+    SLIM.with(|s| s.set(on));
+}
+
+fn icon_set() -> &'static SvgIconSet {
+    if SLIM.with(std::cell::Cell::get) { slim_icons() } else { white_icons() }
+}
+
 pub fn exists(name: &str) -> bool {
     white_icons().contains(name)
 }
 
 /// An egui image for an icon, tinted.
 pub fn image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
-    egui::Image::new(white_icons().source(name)).fit_to_exact_size(Vec2::splat(size)).tint(tint)
+    egui::Image::new(icon_set().source(name)).fit_to_exact_size(Vec2::splat(size)).tint(tint)
 }
 
 /// Paint an icon centred in `rect`.
@@ -155,6 +177,14 @@ pub fn tool_icon(t: Tool) -> &'static str {
 /// Selected and hover fill shared by square icon buttons. Returns the icon tint.
 pub fn button_chrome(ui: &egui::Ui, rect: Rect, selected: bool, hovered: bool) -> Color32 {
     let t = Tokens::get(ui.ctx());
+    if selected && t.slim() {
+        // Evora build (patch LUM-18): a selected button is the selected-row grey edged in neutral
+        // grey (3:1 or more on the grey and the bars, WCAG 1.4.11), no accent.
+        let gx = t.graphite();
+        ui.painter().rect_filled(rect, t.radius_sm, t.row_selected);
+        ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, gx.trail), egui::StrokeKind::Inside);
+        return gx.text_hi;
+    }
     if selected {
         ui.painter().rect_filled(rect, t.radius_sm, t.accent_soft);
         ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.accent_border), egui::StrokeKind::Inside);
@@ -192,6 +222,20 @@ pub fn button_with_icon_size_tip(ui: &mut egui::Ui, name: &str, box_size: f32, i
         corner_radius: t.radius_sm.into(),
         focus_stroke: egui::Stroke::new(1.0, t.accent),
     };
+    // Evora build (patch LUM-18): in Evora's graphite grammar a selected tool is the selected-row
+    // grey edged in neutral grey (3:1 or more on the grey and the bars, WCAG 1.4.11) with a bright
+    // icon, no accent; the focus ring is the bright grey (the accent falls under 3:1 on the hover
+    // and selected greys).
+    let style = if t.slim() {
+        let gx = t.graphite();
+        IconButtonStyle {
+            selected: ButtonVisuals { fill: t.row_selected, stroke: egui::Stroke::new(1.0, gx.trail), icon: gx.text_hi },
+            focus_stroke: egui::Stroke::new(1.0, gx.text_hi),
+            ..style
+        }
+    } else {
+        style
+    };
     let label = if tooltip.is_empty() { name } else { tl!(tooltip) };
     let resp = IconButton::new(label, Vec2::splat(box_size), &style).selected(selected).show(ui, |ui, rect, tint| {
         paint(ui, rect, name, icon_size, tint);
@@ -203,14 +247,33 @@ pub fn button_with_icon_size_tip(ui: &mut egui::Ui, name: &str, box_size: f32, i
 pub fn rail_button(ui: &mut egui::Ui, name: &str, box_size: f32, on: bool, tooltip: &str) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), Sense::click());
-    if on {
+    let gx = t.graphite();
+    if on && t.slim() {
+        // Evora build (patch LUM-18): "on" is the selected-row grey edged in neutral grey (3:1 or
+        // more on the grey and the bars, WCAG 1.4.11).
+        ui.painter().rect_filled(rect, t.radius_sm, t.row_selected);
+        ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, gx.trail), egui::StrokeKind::Inside);
+    } else if on {
         ui.painter().rect_filled(rect, t.radius_sm, t.card);
         ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
     } else if resp.hovered() {
         ui.painter().rect_filled(rect, t.radius_sm, t.hover);
     }
-    let tint = if on || resp.hovered() { t.text } else { t.text_faint };
+    // Evora build (patch LUM-18): under the Evora themes the icon is the icon grey at rest and the
+    // bright grey when on, and a focused button shows the bright grey ring (WCAG 2.4.7).
+    let tint = if on && t.slim() {
+        gx.text_hi
+    } else if on || resp.hovered() {
+        t.text
+    } else if t.slim() {
+        t.icon
+    } else {
+        t.text_faint
+    };
     paint(ui, rect, name, (box_size * 0.52).round(), tint);
+    if t.slim() && resp.has_focus() {
+        crate::widgets::slim_focus_ring(ui, rect, &t);
+    }
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), on, tl!(tooltip)));
     resp.on_hover_text(tl!(tooltip))
 }

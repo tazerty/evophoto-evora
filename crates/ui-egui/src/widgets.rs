@@ -24,6 +24,19 @@ pub fn style_spectrum_popup_menu(ui: &mut Ui) {
         return;
     }
     ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+    if t.slim() {
+        // Evora build (patch LUM-18): a neutral hover row (the hover grey) in Evora's graphite
+        // grammar, never the full accent.
+        let r = CornerRadius::same(t.radius_sm as u8);
+        let v = &mut ui.style_mut().visuals;
+        v.widgets.hovered.weak_bg_fill = t.hover;
+        v.widgets.hovered.bg_fill = t.hover;
+        v.widgets.hovered.bg_stroke = Stroke::NONE;
+        v.widgets.inactive.corner_radius = r;
+        v.widgets.hovered.corner_radius = r;
+        v.widgets.active.corner_radius = r;
+        return;
+    }
     let v = &mut ui.style_mut().visuals;
     v.widgets.hovered.weak_bg_fill = t.accent;
     v.widgets.hovered.bg_fill = t.accent;
@@ -207,19 +220,34 @@ fn pro_panel(
     let (strip, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
     let strip_resp = ui.interact(strip, ui.id().with((id, "strip")), Sense::click_and_drag());
     let rounding = if collapsed { CornerRadius::same(3) } else { CornerRadius { nw: 3, ne: 3, sw: 0, se: 0 } };
+    // Evora build (patch LUM-18): flat docked panels (radius 0) in Evora's graphite grammar; the
+    // strip's tabs are underlined (`tab_strip::pro_tabs`).
+    let rounding = if t.slim() { CornerRadius::ZERO } else { rounding };
     ui.painter().rect_filled(strip, rounding, t.tab_strip);
     // Panel menu (hamburger); the tabs stay left of it, eliding or overflowing (#151).
-    let menu = Rect::from_center_size(pos2(strip.right() - 14.0, strip.center().y), vec2(20.0, 18.0));
+    // Evora build (patch LUM-18): a 24 pt target (WCAG 2.5.8) in Evora's graphite grammar.
+    let menu_size = if t.slim() { vec2(24.0, 24.0) } else { vec2(20.0, 18.0) };
+    let menu = Rect::from_center_size(pos2(strip.right() - 14.0, strip.center().y), menu_size);
     let tabs_out = crate::tab_strip::pro_tabs(ui, ui.id().with((id, "tabs")), strip, menu.left(), tabs, selected, collapsed, reorderable);
     let mresp = ui.interact(menu, ui.id().with((id, "menu")), Sense::click());
-    let c = if mresp.hovered() { t.text } else { t.text_faint };
+    let c = if mresp.hovered() {
+        t.text
+    } else if t.slim() {
+        t.icon
+    } else {
+        t.text_faint
+    };
     for k in 0..3 {
         let y = menu.center().y - 3.5 + k as f32 * 3.5;
         ui.painter().line_segment([pos2(menu.center().x - 5.0, y), pos2(menu.center().x + 5.0, y)], Stroke::new(1.0, c));
     }
+    if t.slim() && mresp.has_focus() {
+        slim_focus_ring(ui, menu, &t);
+    }
     // Body.
     if !collapsed {
-        egui::Frame::NONE.fill(t.card).corner_radius(CornerRadius { nw: 0, ne: 0, sw: 3, se: 3 }).inner_margin(body_margin(true)).show(ui, |ui| {
+        let body_radius = if t.slim() { CornerRadius::ZERO } else { CornerRadius { nw: 0, ne: 0, sw: 3, se: 3 } };
+        egui::Frame::NONE.fill(t.card).corner_radius(body_radius).inner_margin(body_margin(true)).show(ui, |ui| {
             ui.set_width(width - 16.0);
             body(ui, *selected);
         });
@@ -231,7 +259,8 @@ fn pro_panel(
 /// The panel menu button (hamburger in Pro, ellipsis in Studio), matching the dock and cards.
 pub fn panel_menu_button(ui: &mut Ui) -> Response {
     let t = Tokens::get(ui.ctx());
-    let size = vec2(20.0, 20.0);
+    // Evora build (patch LUM-18): a 24 pt target (WCAG 2.5.8) in Evora's graphite grammar.
+    let size = if t.slim() { vec2(24.0, 24.0) } else { vec2(20.0, 20.0) };
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let tint = crate::icons::button_chrome(ui, rect, false, resp.hovered());
     if t.pro {
@@ -247,13 +276,40 @@ pub fn panel_menu_button(ui: &mut Ui) -> Response {
     resp.on_hover_text(tip)
 }
 
+/// Evora build (patch LUM-18): the keyboard focus ring of Evora's thin controls (WCAG 2.4.7), a
+/// 1 pt ring in the bright text grey 2 pt inside `rect`: the accent falls under 3:1 on the hover
+/// and selected greys.
+pub(crate) fn slim_focus_ring(ui: &Ui, rect: Rect, t: &Tokens) {
+    ui.painter().rect_stroke(rect.shrink(2.0), t.radius_sm, Stroke::new(1.0, t.graphite().text_hi), StrokeKind::Inside);
+}
+
 pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let translated = tl!(label);
-    let font = theme::medium(12.5);
+    let font = theme::medium(if t.slim() { 12.0 } else { 12.5 });
     let galley = ui.painter().layout_no_wrap(translated.to_string(), font, t.text);
     let size = vec2(galley.size().x + 20.0, 24.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    if t.slim() {
+        // Evora build (patch LUM-18): an underlined tab in Evora's graphite grammar, as on the
+        // panels' strips (`tab_strip::pro_tabs`).
+        let color = if selected {
+            t.graphite().text_hi
+        } else if resp.hovered() {
+            t.text_dim
+        } else {
+            t.text_faint
+        };
+        if selected {
+            ui.painter().rect_filled(Rect::from_min_max(pos2(rect.left(), rect.bottom() - 2.0), rect.max), 0.0, t.accent);
+        }
+        ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, color);
+        if resp.has_focus() {
+            slim_focus_ring(ui, rect, &t);
+        }
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, translated));
+        return resp;
+    }
     if selected {
         surface(ui, rect, t.hover, true);
         if !t.bevel {
@@ -540,6 +596,9 @@ struct FieldOpts {
     /// The length (px) 100 % stands for, so lengths and percentages convert into each other.
     extent: Option<f64>,
     wrap_drag: bool,
+    /// Evora build (patch LUM-18): in Evora's graphite grammar, no box at rest; it shows while
+    /// the field is hovered or focused (a one-line slider row's value).
+    bare: bool,
 }
 
 /// Arrow-key and drag step for a value field: [`FieldOpts::step_from_decimals`] uses `decimals`;
@@ -579,9 +638,16 @@ fn value_field_box(
     trailing: f32,
     opts: FieldOpts,
 ) -> (Response, Rect) {
-    let FieldOpts { decimals, step_from_decimals, units, extent, wrap_drag } = opts;
+    let FieldOpts { decimals, step_from_decimals, units, extent, wrap_drag, bare } = opts;
     let t = Tokens::get(ui.ctx());
-    let (rect, slot) = ui.allocate_exact_size(size, Sense::hover());
+    let (full, slot) = ui.allocate_exact_size(size, Sense::hover());
+    // Evora build (patch LUM-18): in Evora's graphite grammar the box is drawn 22 pt tall inside
+    // its row (`rect`), while everything that takes the pointer (the number, the label's scrub
+    // area, the wheel) keeps the row's full height (`full`, 24 pt: WCAG 2.5.8); a bare box shows
+    // only hovered or focused, and a focused box is bordered with the accent.
+    let slim = t.slim();
+    let rect = if slim && full.height() > SLIM_FIELD_H { Rect::from_center_size(full.center(), vec2(full.width(), SLIM_FIELD_H)) } else { full };
+    let bare = bare && slim;
     let scrub = take_label_scrub(ui, rect).map(|s| {
         if !s.option_area {
             return s;
@@ -589,7 +655,7 @@ fn value_field_box(
         // A direct click+drag target avoids egui snapping the padding/suffix to the nearby
         // numeric button. It is not focusable; the editor drawn next wins inside its bounds.
         // Preserve a popup field's trailing arrow, and never extend outside the UI clip.
-        let hit = Rect::from_min_max(pos2(s.rect.left(), rect.top()), pos2(rect.right() - trailing, rect.bottom())).intersect(ui.clip_rect());
+        let hit = Rect::from_min_max(pos2(s.rect.left(), full.top()), pos2(rect.right() - trailing, full.bottom())).intersect(ui.clip_rect());
         let mut resp = ui.interact(hit, s.label, Sense::CLICK | Sense::DRAG);
         if let Some(tip) = s.tip
             && resp.hover_pos().is_some_and(|p| s.rect.contains(p))
@@ -605,9 +671,14 @@ fn value_field_box(
         Some(u) => crate::numeric_expression::Units { unit: Some(u.unit), suffix: typed_suffix, dpi: u.dpi, ppi: u.ppi, extent },
         None => crate::numeric_expression::Units { unit: unit_of_suffix(typed_suffix), suffix: typed_suffix, dpi, ppi, extent },
     };
-    surface(ui, rect, t.field, false);
-    if !t.bevel {
-        ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+    // The field's id is only known once it's drawn: last frame's, saved under `slot` below.
+    let focused = ui.data(|d| d.get_temp::<egui::Id>(slot.id)).filter(|id| ui.memory(|m| m.has_focus(*id)));
+    let border = if slim && focused.is_some() { t.accent } else { t.field_border };
+    if !bare || focused.is_some() || ui.rect_contains_pointer(full) {
+        surface(ui, rect, t.field, false);
+        if !t.bevel {
+            ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, border), StrokeKind::Inside);
+        }
     }
     // The number's slot ends 1 pt left of the suffix, by its measured width (the suffix is drawn
     // 6 pt from the right edge), so a one-character unit like `%` leaves the number room (#3040).
@@ -618,18 +689,18 @@ fn value_field_box(
     // one text row tall, so a slim box's number isn't pushed out of it (#2823).
     let font = theme::mono(12.0);
     let row_h = ui.painter().layout_no_wrap("0".into(), font.clone(), t.text).size().y;
-    let slot_h = (rect.height() - 4.0).max(row_h).min(rect.height() - 2.0);
+    // Evora build (patch LUM-18): the number takes the row's full height in Evora's graphite
+    // grammar (its own outline and fill are left off below, the box shows the focus).
+    let slot_h = if slim { full.height() } else { (rect.height() - 4.0).max(row_h).min(rect.height() - 2.0) };
     let cy = rect.center().y;
     let field = Rect::from_min_max(pos2(rect.left() + 4.0, cy - slot_h / 2.0), pos2(rect.right() - 4.0 - suffix_w - trailing, cy + slot_h / 2.0));
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
     let fine = field_fine(&range, decimals, step_from_decimals);
     let unit = field_step(&range, decimals, step_from_decimals);
     let (lo, hi) = (*range.start(), *range.end());
-    // The field's id is only known once it's drawn: last frame's, saved under `slot` below.
-    let focused = ui.data(|d| d.get_temp::<egui::Id>(slot.id)).filter(|id| ui.memory(|m| m.has_focus(*id)));
     let (step, grid) = arrow_step(ui, slot.id, unit);
     // The wheel steps it as the arrow keys do (#5473), focused or under the pointer.
-    let notches = crate::field_wheel::notches(ui, slot.id, focused.is_some(), rect);
+    let notches = crate::field_wheel::notches(ui, slot.id, focused.is_some(), full);
     if notches != 0.0
         && let Some(id) = focused
         && ui.data(|d| d.get_temp(id.with("arithmetic"))).unwrap_or(false)
@@ -648,6 +719,19 @@ fn value_field_box(
             ui.style_mut().visuals.widgets.inactive.bg_stroke = Stroke::NONE;
             ui.style_mut().visuals.widgets.hovered.bg_stroke = Stroke::NONE;
             ui.style_mut().visuals.widgets.hovered.weak_bg_fill = Color32::TRANSPARENT;
+            if slim {
+                // Evora build (patch LUM-18): the number's slot is taller than the box here, so it
+                // draws no frame of its own (pressed fill and outline, focused outline and fill:
+                // a zero-width selection stroke keeps its colour); the box above shows the focus.
+                // Its text selection is the fields' grey (`field_selection`), as in a text field.
+                let v = &mut ui.style_mut().visuals;
+                v.widgets.active.bg_fill = Color32::TRANSPARENT;
+                v.widgets.active.weak_bg_fill = Color32::TRANSPARENT;
+                v.widgets.active.bg_stroke = Stroke::NONE;
+                v.extreme_bg_color = Color32::TRANSPARENT;
+                v.selection.stroke.width = 0.0;
+                v.selection.bg_fill = t.field_selection();
+            }
             ui.style_mut().override_font_id = Some(font);
             // The theme's interact height (24) is taller than the number's slot: the DragValue
             // would grow past the slot's bottom and sit low, or spill out of a slim box (#2823).
@@ -656,6 +740,9 @@ fn value_field_box(
             ui.spacing_mut().button_padding = Vec2::ZERO;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let layout = egui::Layout::centered_and_justified(ui.layout().main_dir());
+                // Evora build (patch LUM-18): in Evora's graphite grammar the number sits flush
+                // with the box's end (right-aligned figures), centred otherwise.
+                let layout = if slim { layout.with_main_align(egui::Align::Max) } else { layout };
                 ui.allocate_ui_with_layout(field.size(), layout, |ui| number_edit(ui, value, range, fine, decimals, units, wrap_drag)).inner
             })
             .inner
@@ -870,13 +957,23 @@ pub fn text_field(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, widt
 /// [`TEXT_FIELD_LIMIT`] without one.
 pub fn text_field_ex(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, width: f32, mono: bool, char_limit: Option<usize>) -> Response {
     let t = Tokens::get(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(vec2(width.max(16.0), TEXT_FIELD_H), Sense::hover());
+    let (full, _) = ui.allocate_exact_size(vec2(width.max(16.0), TEXT_FIELD_H), Sense::hover());
+    // Evora build (patch LUM-18): in Evora's graphite grammar a 22 pt box inside its 24 pt row,
+    // the edit taking the row's full height (WCAG 2.5.8; it draws no frame), 12 pt text, and the
+    // box bordered with the accent while focused.
+    let slim = t.slim();
+    let rect = if slim { Rect::from_center_size(full.center(), vec2(full.width(), SLIM_FIELD_H)) } else { full };
+    let border = if slim && ui.memory(|m| m.has_focus(id)) { t.accent } else { t.field_border };
     surface(ui, rect, t.field, false);
     if !t.bevel {
-        ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, border), StrokeKind::Inside);
     }
-    let font = if mono { theme::mono(12.0) } else { egui::FontId::proportional(12.5) };
-    let inner = rect.shrink2(TEXT_FIELD_PAD);
+    let font = if mono { theme::mono(12.0) } else { egui::FontId::proportional(if slim { 12.0 } else { 12.5 }) };
+    let inner = if slim {
+        Rect::from_min_max(pos2(rect.left() + TEXT_FIELD_PAD.x, full.top()), pos2(rect.right() - TEXT_FIELD_PAD.x, full.bottom()))
+    } else {
+        rect.shrink2(TEXT_FIELD_PAD)
+    };
     let limit = char_limit.unwrap_or(TEXT_FIELD_LIMIT);
     // A value already past the limit (restored from a state file, set by automation) is shown and
     // edited as its first `limit` characters, so it is never laid out whole; the caller's string
@@ -903,6 +1000,11 @@ pub fn text_field_ex(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, w
     // The theme's 24 pt interact height would make the edit taller than the box's inside.
     child.spacing_mut().interact_size.y = inner.height();
     child.style_mut().visuals.selection.bg_fill = t.field_selection();
+    if slim {
+        // Evora build (patch LUM-18): the edit is taller than the box, so it outlines nothing (a
+        // zero-width selection stroke keeps its colour); the box shows the focus.
+        child.style_mut().visuals.selection.stroke.width = 0.0;
+    }
     let response = child.add(edit);
     if let Some(b) = bounded
         && response.changed()
@@ -1184,9 +1286,14 @@ pub fn second_click(ui: &Ui, resp: &Response) -> bool {
 fn slider_with(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, gradient: Option<&[Color32]>, g: RowGestures) -> Response {
     let t = Tokens::get(ui.ctx());
     let width = ui.available_width().max(60.0);
-    let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 18.0), Sense::click_and_drag());
+    // Evora build (patch LUM-18): in Evora's graphite grammar a 24 pt hit row (WCAG 2.5.8), and
+    // not a Tab stop (it takes no key and draws no focus ring: the row's value field does both).
+    let (row_h, sense) = if t.slim() { (SLIM_ROW_H, Sense::CLICK | Sense::DRAG) } else { (18.0, Sense::click_and_drag()) };
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(width, row_h), sense);
     let (lo, hi) = (*range.start(), *range.end());
     let track = Rect::from_center_size(rect.center(), vec2(rect.width() - 14.0, if gradient.is_some() { 5.0 } else { 3.0 }));
+    // Evora build (patch LUM-18): a 2 pt track (4 pt for a gradient) in Evora's graphite grammar.
+    let track = if t.slim() { Rect::from_center_size(track.center(), vec2(track.width(), if gradient.is_some() { 4.0 } else { 2.0 })) } else { track };
     if let Some(p) = resp.interact_pointer_pos()
         && (resp.dragged() || resp.clicked())
     {
@@ -1234,6 +1341,15 @@ fn slider_with(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
                 painter.add(mesh);
             }
         }
+        _ if t.slim() => {
+            // Evora build (patch LUM-18): the trail runs from the origin, the middle of a range
+            // that spans zero (Exposure, Temperature offsets) or else its start.
+            let gx = t.graphite();
+            painter.rect_filled(track, 1.0, gx.track);
+            let origin = if lo < 0.0 && hi > 0.0 { track.left() + curve_fraction(0.0, lo, hi, g.curve) * track.width() } else { track.left() };
+            let trail = Rect::from_min_max(pos2(origin.min(knob_x), track.top()), pos2(origin.max(knob_x), track.bottom()));
+            painter.rect_filled(trail, 1.0, gx.trail);
+        }
         _ => {
             painter.rect_filled(track, 2.0, t.field_border);
             let filled = Rect::from_min_max(track.min, pos2(knob_x, track.max.y));
@@ -1241,7 +1357,14 @@ fn slider_with(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
         }
     }
     let knob = pos2(knob_x, rect.center().y);
-    if t.bevel {
+    if t.slim() {
+        // Evora build (patch LUM-18): a flat 10 pt knob with a 1 pt edge, no shadow and no hover
+        // ring; it lightens under the pointer, and its edge takes the accent while dragged.
+        let gx = t.graphite();
+        let hot = resp.hovered() || resp.dragged();
+        painter.circle_filled(knob, 5.0, if hot { gx.knob_hot } else { gx.knob });
+        painter.circle_stroke(knob, 5.0, Stroke::new(1.0, if resp.dragged() { t.accent } else { gx.knob_edge }));
+    } else if t.bevel {
         let kr = Rect::from_center_size(knob, vec2(10.0, 16.0));
         surface(ui, kr, t.card, true);
     } else {
@@ -1290,6 +1413,9 @@ pub fn slider_row_prec(
     decimals: Option<u32>,
 ) -> Response {
     let t = Tokens::get(ui.ctx());
+    if t.slim() && ui.available_width() >= SLIM_ROW_MIN_W {
+        return slim_slider_row(ui, label, value, range, suffix, gradient, g, decimals);
+    }
     let mut changed_resp = None;
     ui.horizontal(|ui| {
         // The label scrubs the row's field, across the row (Photoshop's scrubby labels).
@@ -1321,6 +1447,54 @@ pub fn slider_row_prec(
         r.flags |= v.flags & (Flags::DRAG_STARTED | Flags::DRAGGED | Flags::DRAG_STOPPED);
     }
     ui.add_space(4.0);
+    r
+}
+
+/// Evora build (patch LUM-18): from this width a slider row takes one line, below it two.
+const SLIM_ROW_MIN_W: f32 = 240.0;
+/// Evora build (patch LUM-18): a one-line slider row's height, the height of a field's box in
+/// Evora's graphite grammar (inside its 24 pt row), the value's width and the gaps between parts.
+const SLIM_ROW_H: f32 = 24.0;
+const SLIM_FIELD_H: f32 = 22.0;
+const SLIM_VALUE_W: f32 = 60.0;
+const SLIM_GAP: f32 = 8.0;
+
+/// Evora build (patch LUM-18): [`slider_row_prec`] on one 24 pt line in Evora's graphite grammar:
+/// the label (cut with '…', its full text on hover, still scrubbing the value), the track, then
+/// the value at the end, unframed until hovered or focused. Same gestures and response.
+#[allow(clippy::too_many_arguments)]
+fn slim_slider_row(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    suffix: &str,
+    gradient: Option<&[Color32]>,
+    g: RowGestures,
+    decimals: Option<u32>,
+) -> Response {
+    let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), SLIM_ROW_H), Sense::hover());
+    let label_w = (row.width() * 0.38).clamp(72.0, 112.0);
+    let label_r = Rect::from_min_size(row.min, vec2(label_w, row.height()));
+    let value_r = Rect::from_min_max(pos2(row.right() - SLIM_VALUE_W, row.top()), row.max);
+    let track_r = Rect::from_min_max(pos2(label_r.right() + SLIM_GAP, row.top()), pos2(value_r.left() - SLIM_GAP, row.bottom()));
+    // The label first: it scrubs the next field drawn, this row's value.
+    let mut label_ui = ui.new_child(egui::UiBuilder::new().max_rect(label_r).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    let l = elided_label(&mut label_ui, tl!(label), label_w);
+    scrub_label_within(&label_ui, &l, f32::INFINITY);
+    // The value before the track, so a typed or scrubbed value moves the knob this frame.
+    let mut value_ui = ui.new_child(egui::UiBuilder::new().max_rect(value_r));
+    let opts = FieldOpts { decimals, step_from_decimals: decimals.is_some(), bare: true, ..Default::default() };
+    let field = value_field_box(&mut value_ui, value, range.clone(), suffix, vec2(SLIM_VALUE_W, VALUE_FIELD_H), 0.0, opts).0;
+    let mut slider_ui = ui.new_child(egui::UiBuilder::new().max_rect(track_r));
+    let mut r = slider_with(&mut slider_ui, value, range, gradient, g);
+    if field.changed() {
+        r.mark_changed();
+    }
+    // A scrub of the field or its label is one drag, like the slider's, for history.
+    use egui::response::Flags;
+    r.flags |= field.flags & (Flags::DRAG_STARTED | Flags::DRAGGED | Flags::DRAG_STOPPED);
+    ui.add_space(2.0);
     r
 }
 
@@ -1494,10 +1668,12 @@ fn button_impl_h(ui: &mut Ui, label: &str, min_width: f32, height: Option<f32>, 
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label));
     if resp.has_focus() {
         // Keyboard focus (Tab); clicks don't focus egui buttons.
-        let r = if t.pro { h / 2.0 } else { t.radius_sm } + 2.0;
+        let r = if t.pro && !t.slim() { h / 2.0 } else { t.radius_sm } + 2.0;
         ui.painter().rect_stroke(rect.expand(2.0), r, Stroke::new(2.0, t.accent), StrokeKind::Outside);
     }
-    if t.pro {
+    // Evora build (patch LUM-18): Evora's graphite grammar keeps square-cornered buttons (radius
+    // 3), not the Pro layout's pill buttons.
+    if t.pro && !t.slim() {
         // Spectrum buttons: fully rounded; primary = filled accent, secondary = outline.
         let down = resp.is_pointer_button_down_on();
         let r = h / 2.0;
@@ -1910,7 +2086,10 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let (mut resp, label_resp) = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            let (rect, resp) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::CLICK);
+            // Evora build (patch LUM-18): in Evora's graphite grammar the box's target is the row's
+            // 24 pt (WCAG 2.5.8), the 14 pt box centred in it.
+            let (slot, resp) = ui.allocate_exact_size(vec2(14.0, if t.slim() { 24.0 } else { 14.0 }), Sense::CLICK);
+            let rect = Rect::from_center_size(slot.center(), vec2(14.0, 14.0));
             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             let l = ui
                 .add(egui::Label::new(egui::RichText::new(tl!(label)).color(t.text_dim)).selectable(false).sense(Sense::click()))
@@ -1918,6 +2097,11 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
             // Pressing the label presses the box (#4476).
             let pressed = resp.is_pointer_button_down_on() || l.is_pointer_button_down_on();
             check_box(ui.painter(), rect, *on, resp.hovered() || l.hovered(), pressed, &t);
+            // Evora build (patch LUM-18): the label is the focusable checkbox; its ring goes round
+            // the box.
+            if t.slim() && l.has_focus() {
+                ui.painter().rect_stroke(rect.expand(2.0), t.radius_sm, Stroke::new(1.0, t.graphite().text_hi), StrokeKind::Outside);
+            }
             (resp.union(l.clone()), l)
         })
         .inner;
@@ -1951,7 +2135,11 @@ pub fn check_box(p: &egui::Painter, rect: Rect, on: bool, hovered: bool, pressed
         let a = rect.left_center() + vec2(3.0, 0.5);
         let b = rect.center_bottom() + vec2(-1.0, -3.5);
         let c = rect.right_top() + vec2(-3.0, 3.5);
-        let tick = Stroke::new(rect.width() * 0.125, Color32::WHITE);
+        // Evora build (patch LUM-18): under the Evora themes the member's colour fills the box, so
+        // the tick is white or near-black, whichever reads better on it (a pale colour).
+        let ink = Color32::from_gray(0x14);
+        let tick_color = if t.slim() && theme::contrast_ratio(ink, t.accent) > theme::contrast_ratio(Color32::WHITE, t.accent) { ink } else { Color32::WHITE };
+        let tick = Stroke::new(rect.width() * 0.125, tick_color);
         p.line_segment([a, b], tick);
         p.line_segment([b, c], tick);
     } else {

@@ -1253,6 +1253,8 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
     ctx.set_theme(egui::ThemePreference::System);
     let t = Tokens::for_kind(kind);
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("evophoto-theme"), t));
+    // Evora build (patch LUM-18): the Evora themes draw the thin (1.5) icon strokes.
+    crate::icons::set_slim(t.slim());
     let mut v = if t.dark() { Visuals::dark() } else { Visuals::light() };
     v.panel_fill = t.chrome;
     v.window_fill = t.card;
