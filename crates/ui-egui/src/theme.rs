@@ -52,9 +52,11 @@ pub enum ThemeKind {
     SoftDark,
     /// A low-contrast light theme: pale violet-grey surfaces, softened dark text and a periwinkle accent.
     SoftLight,
-    /// Evora build (patch E2): Evora's dark identity on the Studio layout, indigo accent #4F46E5.
+    /// Evora build (patch E2): Evora's dark identity, indigo accent #4F46E5 (the host's accent
+    /// once named); graphite on the Pro layout since patch LUM-06 r3.
     Evora,
-    /// Evora build (patch E2): Evora's light identity on the Studio layout, indigo accent #4F46E5.
+    /// Evora build (patch E2): Evora's light identity, indigo accent #4F46E5 (the host's accent
+    /// once named); light graphite on the Pro layout since patch LUM-06 r3.
     EvoraLight,
 }
 
@@ -120,8 +122,15 @@ impl ThemeKind {
         }
     }
     /// Photoshop-grammar layout (tab strips, flat panels): the four Pro brightness levels.
+    /// Evora build (patch LUM-06 r3): the Evora themes take this layout too, their tokens being
+    /// `pro` ([`ThemeKind::is_slim`]); the Color group's tab order then agrees with the tokens.
     pub fn is_pro(self) -> bool {
-        matches!(self, ThemeKind::Pro | ThemeKind::ProMedium | ThemeKind::ProLightGray | ThemeKind::ProLight)
+        matches!(self, ThemeKind::Pro | ThemeKind::ProMedium | ThemeKind::ProLightGray | ThemeKind::ProLight) || self.is_slim()
+    }
+    /// Evora build (patch LUM-06 r3): the two Evora themes, drawn in Evora's graphite grammar
+    /// (thin controls, underlined tabs, flat panels) over the Pro layout. No upstream theme is.
+    pub fn is_slim(self) -> bool {
+        matches!(self, ThemeKind::Evora | ThemeKind::EvoraLight)
     }
     /// Whether this theme belongs to the dark appearance family.
     pub fn is_dark(self) -> bool {
@@ -226,10 +235,68 @@ pub struct Tokens {
     pub scrim: Color32,
 }
 
+/// Evora build (patch LUM-06 r3): the colours of Evora's thin controls that are not tokens
+/// ([`Tokens::graphite`]), so no theme literal grows a field.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Graphite {
+    /// A collapsible section header's band, and its hover.
+    pub section: Color32,
+    pub section_hover: Color32,
+    /// The 1 pt structure line above a section header.
+    pub rule: Color32,
+    /// The active tab's label, a selected tool's icon and the keyboard focus ring of the thin
+    /// controls (the accent falls under 3:1 on the hover and selected greys).
+    pub text_hi: Color32,
+    /// A slider's track, its trail from the origin (also the 1 pt edge of a selected tool or an
+    /// "on" rail button: 3:1 or more on the selected grey and the bars), and its knob (rest,
+    /// hover, 1 pt edge).
+    pub track: Color32,
+    pub trail: Color32,
+    pub knob: Color32,
+    pub knob_hot: Color32,
+    pub knob_edge: Color32,
+}
+
 impl Tokens {
     /// Tool outlines need contrast on arbitrary document pixels, independently of UI theme.
     pub(crate) fn cursor_outline() -> [Color32; 2] {
         [Color32::from_black_alpha(160), Color32::from_white_alpha(235)]
+    }
+
+    /// Evora build (patch LUM-06 r3): Evora's graphite grammar, true for the two Evora themes
+    /// only. Widgets draw their thin form under it; every upstream theme keeps its own drawing.
+    pub fn slim(&self) -> bool {
+        self.kind.is_slim()
+    }
+
+    /// Evora build (patch LUM-06 r3): the graphite colours that have no token of their own,
+    /// read by the thin controls under [`Tokens::slim`].
+    pub fn graphite(&self) -> Graphite {
+        if self.dark() {
+            Graphite {
+                section: Color32::from_gray(0x23),
+                section_hover: Color32::from_gray(0x2A),
+                rule: Color32::from_gray(0x0E),
+                text_hi: Color32::from_gray(0xF5),
+                track: Color32::from_gray(0x3D),
+                trail: Color32::from_gray(0x8A),
+                knob: Color32::from_gray(0xDA),
+                knob_hot: Color32::WHITE,
+                knob_edge: Color32::from_gray(0x11),
+            }
+        } else {
+            Graphite {
+                section: Color32::from_gray(0xE8),
+                section_hover: Color32::from_gray(0xDD),
+                rule: Color32::from_gray(0xC7),
+                text_hi: Color32::from_gray(0x0A),
+                track: Color32::from_gray(0xCC),
+                trail: Color32::from_gray(0x73),
+                knob: Color32::from_gray(0xFA),
+                knob_hot: Color32::WHITE,
+                knob_edge: Color32::from_gray(0x59),
+            }
+        }
     }
 
     pub fn for_kind(kind: ThemeKind) -> Self {
@@ -554,91 +621,99 @@ impl Tokens {
             // surfaces, so the secondary and faint text, the accent and danger text and the status
             // hues are darker to hold 4.5:1 (checked by the tests), and the primary button is a
             // deeper blue that takes white text.
-            // Evora build (patch E2): Evora's identity on the Studio layout (rounded chips, cards), not
-            // a copy of any desktop theme: neutral zinc surfaces and the Evora indigo #4F46E5 as
-            // accent and primary button, which takes white text (6.3:1). Text colours hold 4.5:1 on
-            // the surfaces and the hover, pressed and selected states; the accent text is a lighter
-            // indigo on dark surfaces and a deeper one on light surfaces. The UI font stays Inter.
+            // Evora build (patch E2): Evora's identity, not a copy of any desktop theme (on the Studio
+            // layout, rounded chips and cards, until patch LUM-06 r3): neutral zinc surfaces and the
+            // Evora indigo #4F46E5 as accent and primary button, which takes white text (6.3:1).
+            // Text colours hold 4.5:1 on the surfaces and the hover, pressed and selected states;
+            // the accent text is a lighter indigo on dark surfaces and a deeper one on light
+            // surfaces. The UI font stays Inter.
             // Patch LUM-06 r2: field borders at #71717A, 3:1 on the fields and panels they sit on
             // (WCAG 1.4.11; they were 1.5:1); a strictly neutral canvas surround (R = G = B), so it
             // tints no judgement of tones; the accent family derived from the host's accent
             // (`with_evora_accent`), its marks and focus rings at 3:1 or more.
+            // Patch LUM-06 r3 (graphite): strictly neutral greys (R = G = B, no tint) and the Pro
+            // grammar, flat docked panels (radius 0 on panels, 3 and 4 on controls, 6 on floating
+            // windows and menus), square colour chips, a #161616 surround and tab strip, #1C1C1C
+            // panels and bars, #141414 fields still bordered #71717A (3.81:1 on the field, 3.53:1 on
+            // the panels), #383838 selected rows (also behind egui's selected rows, the accent text
+            // holding 4.5:1 there); the thin controls follow [`Tokens::slim`].
             ThemeKind::Evora => Tokens {
                 kind,
-                chrome: Color32::from_rgb(27, 27, 31),
-                canvas: Color32::from_rgb(12, 12, 12),
-                canvas_dot: Color32::from_rgb(12, 12, 12),
-                dock: Color32::from_rgb(20, 20, 23),
-                card: Color32::from_rgb(24, 24, 27),
-                card_border: Color32::from_rgb(39, 39, 42),
-                field: Color32::from_rgb(33, 33, 37),
+                chrome: Color32::from_gray(0x1C),
+                canvas: Color32::from_gray(0x16),
+                canvas_dot: Color32::from_gray(0x16),
+                dock: Color32::from_gray(0x12),
+                card: Color32::from_gray(0x1C),
+                card_border: Color32::from_gray(0x0E),
+                field: Color32::from_gray(0x14),
                 field_border: Color32::from_rgb(113, 113, 122),
-                hover: Color32::from_rgb(45, 45, 50),
-                pressed: Color32::from_rgb(55, 55, 61),
-                text: Color32::from_rgb(250, 250, 250),
-                text_dim: Color32::from_rgb(212, 212, 216),
-                text_faint: Color32::from_rgb(170, 170, 178),
-                icon: Color32::from_rgb(228, 228, 231),
+                hover: Color32::from_gray(0x2A),
+                pressed: Color32::from_gray(0x34),
+                text: Color32::from_gray(0xEB),
+                text_dim: Color32::from_gray(0xBD),
+                text_faint: Color32::from_gray(0x94),
+                icon: Color32::from_gray(0xC4),
                 accent: Color32::from_rgb(79, 70, 229),
                 accent_soft: Color32::from_rgba_unmultiplied(79, 70, 229, 64),
                 accent_border: Color32::from_rgba_unmultiplied(99, 102, 241, 190),
                 accent_text: Color32::from_rgb(165, 180, 252),
-                separator: Color32::from_rgb(39, 39, 42),
-                shadow: Color32::from_black_alpha(150),
+                separator: Color32::from_gray(0x26),
+                shadow: Color32::from_black_alpha(140),
                 primary_bg: Color32::from_rgb(79, 70, 229),
                 primary_text: Color32::WHITE,
                 danger: Color32::from_rgb(248, 113, 113),
                 warning: Color32::from_rgb(251, 191, 36),
-                radius_sm: 6.0,
-                radius: 6.0,
-                radius_lg: 8.0,
+                radius_sm: 3.0,
+                radius: 4.0,
+                radius_lg: 6.0,
                 bevel: false,
-                pro: false,
-                round_chips: true,
-                tab_strip: Color32::TRANSPARENT,
-                row_selected: Color32::TRANSPARENT,
-                histogram_bg: Color32::from_rgb(12, 12, 14),
+                pro: true,
+                round_chips: false,
+                tab_strip: Color32::from_gray(0x16),
+                row_selected: Color32::from_gray(0x38),
+                histogram_bg: Color32::from_gray(0x11),
                 histogram_level: 225,
                 caption_close: Color32::from_rgb(220, 38, 38),
                 caption_close_text: Color32::WHITE,
                 scrim: Color32::from_black_alpha(110),
             }
             .with_evora_accent(host_accent()),
+            // Patch LUM-06 r3: the same grammar on light neutral greys.
             ThemeKind::EvoraLight => Tokens {
                 kind,
-                chrome: Color32::from_rgb(244, 244, 245),
-                canvas: Color32::from_rgb(228, 228, 228),
-                canvas_dot: Color32::from_rgb(212, 212, 212),
-                dock: Color32::from_rgb(238, 238, 240),
-                card: Color32::from_rgb(250, 250, 250),
-                card_border: Color32::from_rgb(228, 228, 231),
+                chrome: Color32::from_gray(0xF2),
+                canvas: Color32::from_gray(0xD4),
+                canvas_dot: Color32::from_gray(0xD4),
+                dock: Color32::from_gray(0xE6),
+                card: Color32::from_gray(0xF7),
+                card_border: Color32::from_gray(0xD6),
                 field: Color32::WHITE,
                 field_border: Color32::from_rgb(113, 113, 122),
-                hover: Color32::from_rgb(239, 239, 241),
-                pressed: Color32::from_rgb(228, 228, 231),
-                text: Color32::from_rgb(24, 24, 27),
-                text_dim: Color32::from_rgb(63, 63, 70),
-                text_faint: Color32::from_rgb(82, 82, 91),
-                icon: Color32::from_rgb(63, 63, 70),
+                hover: Color32::from_gray(0xE8),
+                pressed: Color32::from_gray(0xDD),
+                text: Color32::from_gray(0x1A),
+                text_dim: Color32::from_gray(0x3D),
+                text_faint: Color32::from_gray(0x59),
+                icon: Color32::from_gray(0x3D),
                 accent: Color32::from_rgb(79, 70, 229),
                 accent_soft: Color32::from_rgba_unmultiplied(79, 70, 229, 40),
                 accent_border: Color32::from_rgba_unmultiplied(79, 70, 229, 170),
                 accent_text: Color32::from_rgb(67, 56, 202),
-                separator: Color32::from_rgb(228, 228, 231),
+                separator: Color32::from_gray(0xD6),
                 shadow: Color32::from_black_alpha(45),
                 primary_bg: Color32::from_rgb(79, 70, 229),
                 primary_text: Color32::WHITE,
                 danger: Color32::from_rgb(185, 28, 28),
                 warning: Color32::from_rgb(161, 98, 7),
-                radius_sm: 6.0,
-                radius: 6.0,
-                radius_lg: 8.0,
+                radius_sm: 3.0,
+                radius: 4.0,
+                radius_lg: 6.0,
                 bevel: false,
-                pro: false,
-                round_chips: true,
-                tab_strip: Color32::TRANSPARENT,
-                row_selected: Color32::TRANSPARENT,
-                histogram_bg: Color32::from_rgb(24, 24, 27),
+                pro: true,
+                round_chips: false,
+                tab_strip: Color32::from_gray(0xEB),
+                row_selected: Color32::from_gray(0xD9),
+                histogram_bg: Color32::from_gray(0x18),
                 histogram_level: 240,
                 caption_close: Color32::from_rgb(220, 38, 38),
                 caption_close_text: Color32::WHITE,
@@ -925,6 +1000,8 @@ impl Tokens {
     /// second accent; coloured themes keep their own accent. Scoped to text fields by
     /// [`crate::widgets::text_field`], because `Visuals::selection` also fills selected list rows
     /// and slider trails, which must keep the theme's.
+    /// Evora build (patch LUM-06 r3): the Evora themes are monochrome Pro themes too, and take the
+    /// grey (2.93:1 on their dark field, where the accent's tint was 1.2:1).
     pub fn field_selection(&self) -> Color32 {
         if self.pro { Color32::from_gray(if self.dark() { 96 } else { 201 }) } else { self.accent_soft }
     }
@@ -951,14 +1028,15 @@ impl Tokens {
     /// focused borders, toggles, slider dots): it holds WCAG's 3:1 non-text contrast on the fields,
     /// cards, chrome and docks they sit on (E2-d), moved towards white in the dark theme and
     /// towards black in the light one until it does. The accent text holds 4.5:1 on every surface
-    /// that carries text, hovered and pressed included. The focused and active border is the
-    /// accent itself, opaque (its translucent form fell under 3:1). The primary button keeps the
-    /// host's colour, with white or near-black text, whichever reads better.
+    /// that carries text, hovered, pressed and (patch LUM-06 r3, egui's selected rows) selected
+    /// included. The focused and active border is the accent itself, opaque (its translucent form
+    /// fell under 3:1). The primary button keeps the host's colour, with white or near-black text,
+    /// whichever reads better.
     fn with_evora_accent(self, accent: Color32) -> Tokens {
         let dark = self.dark();
         let toward = if dark { Color32::WHITE } else { Color32::BLACK };
         let marks = [self.field, self.card, self.chrome, self.dock];
-        let texts = [self.card, self.chrome, self.field, self.dock, self.hover, self.pressed];
+        let texts = [self.card, self.chrome, self.field, self.dock, self.hover, self.pressed, self.row_selected];
         let mark = reach(accent, toward, &marks, MARK_CONTRAST);
         let ink = Color32::from_rgb(24, 24, 27);
         let primary_text = if contrast_ratio(Color32::WHITE, accent) >= contrast_ratio(ink, accent) { Color32::WHITE } else { ink };
@@ -1191,6 +1269,17 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
     v.window_shadow = egui::Shadow { offset: [0, 10], blur: 32, spread: 0, color: t.shadow };
     v.popup_shadow = egui::Shadow { offset: [0, 6], blur: 20, spread: 0, color: t.shadow };
     v.selection.bg_fill = if t.bevel || t.pro { t.accent } else { t.accent_soft };
+    if t.slim() {
+        // Evora build (patch LUM-06 r3): menus round like the other floating surfaces, shorter
+        // shadows (floating surfaces only), the neutral selected-row grey, never the accent,
+        // behind egui's selected rows (a dropdown's current row; text fields take
+        // `field_selection`), and a text cursor in the text colour, not egui's blue.
+        v.menu_corner_radius = CornerRadius::same(t.radius_lg as u8);
+        v.window_shadow = egui::Shadow { offset: [0, 4], blur: 16, spread: 0, color: t.shadow };
+        v.popup_shadow = egui::Shadow { offset: [0, 2], blur: 8, spread: 0, color: t.shadow };
+        v.selection.bg_fill = t.row_selected;
+        v.text_cursor.stroke.color = t.text;
+    }
     v.selection.stroke = Stroke::new(1.0, t.accent_text);
     v.slider_trailing_fill = true;
     v.handle_shape = egui::style::HandleShape::Circle;
@@ -1246,6 +1335,22 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
         }
         s.spacing.scroll = scroll;
         s.spacing.tooltip_width = 280.0;
+        if t.slim() {
+            // Evora build (patch LUM-06 r3): denser type and spacing, hit targets kept at 24 pt
+            // (WCAG 2.5.8).
+            s.text_styles = [
+                (TextStyle::Small, FontId::proportional(10.5)),
+                (TextStyle::Body, FontId::proportional(12.0)),
+                (TextStyle::Button, FontId::proportional(12.0)),
+                (TextStyle::Heading, semibold(13.0)),
+                (TextStyle::Monospace, FontId::monospace(11.5)),
+            ]
+            .into();
+            s.spacing.item_spacing = egui::vec2(6.0, 4.0);
+            s.spacing.button_padding = egui::vec2(8.0, 3.0);
+            s.spacing.interact_size.y = 24.0;
+            s.spacing.menu_margin = egui::Margin::same(4);
+        }
     });
     // egui selects its style branch using OS appearance, independently of EvoPhoto's fixed
     // Dark/Light mode or platform appearance service. Both branches need the selected palette.
