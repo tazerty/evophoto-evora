@@ -481,6 +481,8 @@ pub(crate) fn invoke_unguarded(app: &mut EvoPhotoApp, ctx: &egui::Context, id: &
             let r = app.run(id, params)?;
             app.ui.panels.properties = true;
             app.ui.dock_tabs.properties = 0;
+            // Evora build (patch LUM-18): Properties was asked for; it is kept open first.
+            crate::dock::touch_recent(app, crate::dock::Group::Properties);
             Ok(r)
         }
         // Edit › Stroke…: open its full options dialog when called from menus/context

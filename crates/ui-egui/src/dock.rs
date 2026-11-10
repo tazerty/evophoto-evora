@@ -660,6 +660,10 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
     let recalled_before = if comfort { ui.ctx().data(|d| d.get_temp::<(Group, f64)>(recall_id())) } else { None };
     let mut asked: Vec<Group> = Vec::new();
     let mut recalled: Option<Group> = None;
+    // Evora build (patch LUM-18): where the pointer was just pressed, if it was. A press inside an
+    // expanded group asks for it as a click on its strip does: the panel the member works in is
+    // not the one that folds when another is brought in.
+    let pressed_at: Option<Pos2> = if comfort { ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.press_origin()).flatten()) } else { None };
     let heights = app.ui.dock.heights_fit(&order, area.height(), strip, &folded, comfort);
     let locked = app.session.prefs().workspace_locked;
     let rects = rects_after_layout(&heights, area);
@@ -679,6 +683,11 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
         let visible = app.ui.dock.visible_tabs(g, t.pro);
         if visible.is_empty() {
             continue;
+        }
+        // Evora build (patch LUM-18): a press in this expanded group, on the dock's own layer (not
+        // on a menu or a dialog drawn over it), asks for it.
+        if !collapsed && pressed_at.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id())) {
+            asked.push(g);
         }
         let indices: Vec<usize> = visible.iter().map(|(i, _)| *i).collect();
         let tabs: Vec<&str> = visible.iter().map(|(_, name)| *name).collect();

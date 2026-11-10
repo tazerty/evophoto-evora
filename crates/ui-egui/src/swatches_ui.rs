@@ -180,6 +180,8 @@ pub fn import_bytes(app: &mut EvoPhotoApp, name: &str, bytes: &[u8], replace: bo
         None => imported,
     };
     app.ui.panels.color = true;
+    // Evora build (patch LUM-18): the Swatches tab's group was asked for; it is kept open first.
+    crate::dock::touch_recent(app, crate::dock::Group::Color);
     Ok(r)
 }
 
