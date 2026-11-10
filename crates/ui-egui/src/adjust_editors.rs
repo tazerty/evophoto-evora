@@ -320,7 +320,7 @@ fn channel_picker_opts(ui: &mut egui::Ui, id: egui::Id, opts: &[(usize, &str)], 
 
 fn hist_color(ch: &ToneChannel, t: &Tokens) -> Color32 {
     match ch.key {
-        "" | "lightness" | "black" => Color32::from_gray(if t.pro { 150 } else { 110 }),
+        "" | "lightness" | "black" => tone::hist_gray(t, 150, 110),
         k => tone::channel_color(k, t),
     }
 }
@@ -854,7 +854,7 @@ fn threshold(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     let p = ui.painter_at(hr.expand(1.0));
     p.rect_filled(hr, 0.0, t.field);
     if let Some(h) = &cx.hist {
-        tone::draw_histogram(&p, hr, &h[0], Color32::from_gray(if t.pro { 150 } else { 110 }));
+        tone::draw_histogram(&p, hr, &h[0], tone::hist_gray(&t, 150, 110));
     }
     let level = num(v, "level", 128.0);
     let x = hr.left() + level / 255.0 * hr.width();

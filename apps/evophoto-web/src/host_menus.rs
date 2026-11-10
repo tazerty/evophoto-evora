@@ -4,7 +4,10 @@
 //! do nothing there: batch processing and droplets, scripts that read files or folders from disk,
 //! exports to a folder, printing, the video timeline and video layers, plug-ins, variables and
 //! data sets, Exit (the host shell closes the editor), and, since upstream v0.16.0, Help › Check
-//! for Updates (no updater in the browser; its window names upstream's release page). They leave
+//! for Updates (no updater in the browser; its window names upstream's release page), and, since
+//! EVORA-LUM-122, the engine's own appearance commands (Window > Theme and its two lists, Next
+//! Appearance Mode, Darken and Lighten Interface): the host leads the theme, light or dark, through
+//! `evora:init` and `evora:theme`, and these commands left Evora's themes for upstream's. They leave
 //! the menus, the command palette and `diag.menus`, and the engine ignores them, shortcuts included
 //! (`evophoto_ui_egui::menus::set_host_hidden`). Each id is one of the menu catalogue or of the
 //! engine's command table of this version; `diag.menus` reports the ones it removed (`masked`),
@@ -12,7 +15,7 @@
 //! upstream's.
 
 /// The hidden ids, grouped as listed above.
-pub const HIDDEN: [&str; 39] = [
+pub const HIDDEN: [&str; 59] = [
     // Batch processing and droplets (no file system in the browser).
     "file.automate.batch",
     "file.automate.createDroplet",
@@ -62,6 +65,27 @@ pub const HIDDEN: [&str; 39] = [
     "file.exit",
     // Help › Check for Updates (upstream v0.16.0): releases are the host's, never upstream's page.
     "help.checkForUpdates",
+    // The engine's appearance commands (EVORA-LUM-122): the host leads the theme.
+    "window.theme.toggle",
+    "window.theme.system",
+    "window.theme.pro",
+    "window.theme.proMedium",
+    "window.theme.proLightGray",
+    "window.theme.proLight",
+    "window.theme.studio",
+    "window.theme.studioLight",
+    "window.theme.classic",
+    "window.theme.solarizedDark",
+    "window.theme.adwaita",
+    "window.theme.adwaitaDark",
+    "window.theme.breezeLight",
+    "window.theme.breezeDark",
+    "window.theme.softLight",
+    "window.theme.softDark",
+    "window.theme.evora",
+    "window.theme.evoraLight",
+    "view.darkenInterface",
+    "view.lightenInterface",
 ];
 
 /// Evora build (patches LUM-PSD and LUM-EXPORTS): the formats File › Export › Export As offers under

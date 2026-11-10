@@ -249,12 +249,13 @@ pub struct Graphite {
     pub text_hi: Color32,
     /// A slider's track, its trail from the origin (also the 1 pt edge of a selected tool or an
     /// "on" rail button: 3:1 or more on the selected grey and the bars), and its knob (rest,
-    /// hover, 1 pt edge).
+    /// hover, 1 pt edge at rest and under the pointer).
     pub track: Color32,
     pub trail: Color32,
     pub knob: Color32,
     pub knob_hot: Color32,
     pub knob_edge: Color32,
+    pub knob_edge_hot: Color32,
 }
 
 impl Tokens {
@@ -283,6 +284,7 @@ impl Tokens {
                 knob: Color32::from_gray(0xDA),
                 knob_hot: Color32::WHITE,
                 knob_edge: Color32::from_gray(0x11),
+                knob_edge_hot: Color32::from_gray(0x11),
             }
         } else {
             Graphite {
@@ -292,9 +294,13 @@ impl Tokens {
                 text_hi: Color32::from_gray(0x0A),
                 track: Color32::from_gray(0xCC),
                 trail: Color32::from_gray(0x73),
-                knob: Color32::from_gray(0xFA),
-                knob_hot: Color32::WHITE,
+                // A white knob rimmed at 6.5:1 on the pale panel; under the pointer it darkens
+                // (1.4:1 against its rest, the step the dark theme takes the other way) and its
+                // rim goes to the strongest text grey.
+                knob: Color32::WHITE,
+                knob_hot: Color32::from_gray(0xD9),
                 knob_edge: Color32::from_gray(0x59),
+                knob_edge_hot: Color32::from_gray(0x0A),
             }
         }
     }

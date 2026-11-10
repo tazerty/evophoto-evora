@@ -165,6 +165,17 @@ pub fn start() {
                     }
                     listen_pen(&pen_target, app.stylus.feed.clone());
                     app.set_theme(&cc.egui_ctx, theme);
+                    // Evora build (patch LUM-18): under the bridge the host leads the appearance, so
+                    // both of the engine's appearance slots hold an Evora theme. `set_theme` fills
+                    // the slot of the theme it applies only, and the other kept upstream's default
+                    // (Pro Light after a dark start): whatever changes the appearance mode from
+                    // inside the engine now stays within the Evora themes.
+                    let evora_slots = serde_json::json!({"values": {"interface.lightTheme": "evoraLight", "interface.darkTheme": "evora"}});
+                    if shell_bridge.is_some()
+                        && let Err(e) = app.run("prefs.set", evora_slots)
+                    {
+                        log::warn!("evophoto-web: Evora appearance slots not set: {e}");
+                    }
                     if let Some(code) = forced_language
                         && let Err(e) = app.run("prefs.set", serde_json::json!({"values": {"interface.language": code}}))
                     {

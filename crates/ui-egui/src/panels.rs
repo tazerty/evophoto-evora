@@ -4159,7 +4159,10 @@ pub(crate) fn field_chips(app: &mut EvoPhotoApp, ui: &mut egui::Ui, chips: Rect)
         p.rect_stroke(bgr.expand(2.0), 2.0, frame, StrokeKind::Outside);
     }
     p.rect_filled(fgr, 2.0, c32(app.session.tools.foreground));
-    p.rect_stroke(fgr, 2.0, Stroke::new(1.0, Color32::from_gray(210)), StrokeKind::Outside);
+    // Evora build (patch LUM-18): under the Evora themes the foreground chip takes the field
+    // border, as the background one does; upstream's pale grey vanishes on the light panel.
+    let fg_edge = if t.slim() { t.field_border } else { Color32::from_gray(210) };
+    p.rect_stroke(fgr, 2.0, Stroke::new(1.0, fg_edge), StrokeKind::Outside);
     if !bg_active {
         p.rect_stroke(fgr.expand(2.0), 2.0, frame, StrokeKind::Outside);
     }

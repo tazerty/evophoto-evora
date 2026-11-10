@@ -331,6 +331,15 @@ pub fn channel_color(name: &str, t: &Tokens) -> Color32 {
     }
 }
 
+/// Evora build (patch LUM-18): the grey of a composite histogram drawn on the field. Upstream
+/// picks it by the Pro layout (`pro`, else `plain`); the two Evora themes are both Pro, the light
+/// one with a white field, so they pick by brightness instead: `pro` on the dark field, `plain`
+/// on the white one (3:1 or more on the field either way). Every upstream theme keeps its grey.
+pub(crate) fn hist_gray(t: &Tokens, pro: u8, plain: u8) -> Color32 {
+    let pro_grey = if t.slim() { t.dark() } else { t.pro };
+    Color32::from_gray(if pro_grey { pro } else { plain })
+}
+
 fn channel_picker(ui: &mut egui::Ui, id: egui::Id, label: &str) -> usize {
     let mut ch: usize = ui.data(|d| d.get_temp(id)).unwrap_or(0);
     ui.horizontal(|ui| {
@@ -425,7 +434,7 @@ pub fn histogram_panel(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
     let (r, _) = ui.allocate_exact_size(vec2(w, 100.0), Sense::hover());
     let p = ui.painter_at(r);
     p.rect_filled(r, 0.0, t.field);
-    let color = if ch == 0 { Color32::from_gray(if t.pro { 190 } else { 70 }) } else { channel_color(CHANNELS[ch.min(3)].0, &t) };
+    let color = if ch == 0 { hist_gray(&t, 190, 70) } else { channel_color(CHANNELS[ch.min(3)].0, &t) };
     draw_histogram(&p, r, &h[ch], color);
     if stale {
         // Photoshop's "cached data" warning triangle while the histogram lags the image.

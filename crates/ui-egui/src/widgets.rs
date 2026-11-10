@@ -1373,11 +1373,19 @@ fn slider_with(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
     let knob = pos2(knob_x, rect.center().y);
     if t.slim() {
         // Evora build (patch LUM-18): a flat 10 pt knob with a 1 pt edge, no shadow and no hover
-        // ring; it lightens under the pointer, and its edge takes the accent while dragged.
+        // ring; under the pointer it lightens in the dark theme and darkens, edge included, in the
+        // light one, and its edge takes the accent while dragged.
         let gx = t.graphite();
         let hot = resp.hovered() || resp.dragged();
+        let edge = if resp.dragged() {
+            t.accent
+        } else if hot {
+            gx.knob_edge_hot
+        } else {
+            gx.knob_edge
+        };
         painter.circle_filled(knob, 5.0, if hot { gx.knob_hot } else { gx.knob });
-        painter.circle_stroke(knob, 5.0, Stroke::new(1.0, if resp.dragged() { t.accent } else { gx.knob_edge }));
+        painter.circle_stroke(knob, 5.0, Stroke::new(1.0, edge));
     } else if t.bevel {
         let kr = Rect::from_center_size(knob, vec2(10.0, 16.0));
         surface(ui, kr, t.card, true);
