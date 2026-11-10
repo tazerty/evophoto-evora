@@ -461,15 +461,16 @@ pub struct DockFit {
 
 /// Evora build (patch LUM-18): "a panel is usable or folded, never squeezed". The groups of
 /// `shown` (display order) to draw as their tab strip because a column `avail` points tall cannot
-/// give every expanded group its [`Group::comfort_height`]: while the expanded groups (a height
-/// the member dragged counts when it is taller than the comfort; the last expanded group, the
-/// filler, takes what is left, so its comfort alone counts), the `strip`-high strips of the
-/// others and the `gap`s between groups do not fit, and more than one group is expanded, the
-/// group asked for least recently folds. `recent` lists the groups the member asked for, most
-/// recent first; the groups missing from it fold before those, Navigator first and Layers last.
-/// `collapsed` (the member's own collapsed groups) and `heights` are
+/// give every expanded group its [`Group::comfort_height`]: while the comforts of the expanded
+/// groups, the `strip`-high strips of the others and the `gap`s between groups do not fit, and
+/// more than one group is expanded, the group asked for least recently folds. The comforts alone
+/// count: a height the member dragged a group to gives way down to the comfort in
+/// [`DockLayout::heights_fit`] and never folds a group the column has room for, so what is folded
+/// depends on the column and on what was asked for, not on a splitter. `recent` lists the groups
+/// the member asked for, most recent first; the groups missing from it fold before those,
+/// Navigator first and Layers last. `collapsed` (the member's own collapsed groups) is
 /// [`DockLayout`]'s. The last expanded group never folds. Pure: nothing is stored.
-pub fn fold_to_fit(shown: &[Group], collapsed: &[Group], heights: &BTreeMap<Group, f32>, avail: f32, strip: f32, gap: f32, recent: &[Group]) -> Vec<Group> {
+pub fn fold_to_fit(shown: &[Group], collapsed: &[Group], avail: f32, strip: f32, gap: f32, recent: &[Group]) -> Vec<Group> {
     let avail = if avail.is_finite() { avail.max(0.0) } else { 0.0 };
     let gaps = gap * shown.len().saturating_sub(1) as f32;
     let mut folded: Vec<Group> = Vec::new();
@@ -478,23 +479,8 @@ pub fn fold_to_fit(shown: &[Group], collapsed: &[Group], heights: &BTreeMap<Grou
         if open.len() < 2 {
             break;
         }
-        let filler = open.last().copied();
-        let wanted: f32 = shown
-            .iter()
-            .map(|g| {
-                if !open.contains(g) {
-                    strip
-                } else if Some(*g) == filler {
-                    g.comfort_height()
-                } else {
-                    match heights.get(g) {
-                        Some(h) if h.is_finite() => h.clamp(g.comfort_height(), MAX_HEIGHT),
-                        _ => g.comfort_height(),
-                    }
-                }
-            })
-            .sum();
-        // Half a point of slack: a splitter dragged to its stop leaves the sum at `avail`.
+        let wanted: f32 = shown.iter().map(|g| if open.contains(g) { g.comfort_height() } else { strip }).sum();
+        // Half a point of slack for the rounding of the column's height.
         if wanted + gaps <= avail + 0.5 {
             break;
         }
@@ -663,7 +649,7 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
     // set is derived, never written to the layout, so they come back when the column grows.
     let comfort = t.slim();
     let folded: Vec<Group> = if comfort {
-        fold_to_fit(&order, &app.ui.dock.collapsed, &app.ui.dock.heights, area.height(), strip, GAP, &app.ui.dock_fit.recent)
+        fold_to_fit(&order, &app.ui.dock.collapsed, area.height(), strip, GAP, &app.ui.dock_fit.recent)
     } else {
         Vec::new()
     };

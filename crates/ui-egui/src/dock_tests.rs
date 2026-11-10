@@ -1272,7 +1272,7 @@ fn workspace_layouts_leave_the_layers_panel_options_alone() {
 const EVORA_FOUR: [Group; 5] = [Group::Navigator, Group::Properties, Group::History, Group::Layers, Group::Color];
 
 fn folded_at(avail: f32, recent: &[Group]) -> Vec<Group> {
-    fold_to_fit(&EVORA_FOUR, &[Group::Color], &BTreeMap::new(), avail, 28.0, GAP, recent)
+    fold_to_fit(&EVORA_FOUR, &[Group::Color], avail, 28.0, GAP, recent)
 }
 
 /// Comforts: Navigator 170, Properties 200, History 160, Layers 250; Color's strip 28; four gaps.
@@ -1299,8 +1299,8 @@ fn the_last_expanded_group_never_folds() {
         }
     }
     // A single expanded group stays open however short the column is.
-    assert!(fold_to_fit(&[Group::Layers], &[], &BTreeMap::new(), 10.0, 28.0, GAP, &[]).is_empty());
-    assert!(fold_to_fit(&[], &[], &BTreeMap::new(), 500.0, 28.0, GAP, &[]).is_empty());
+    assert!(fold_to_fit(&[Group::Layers], &[], 10.0, 28.0, GAP, &[]).is_empty());
+    assert!(fold_to_fit(&[], &[], 500.0, 28.0, GAP, &[]).is_empty());
 }
 
 #[test]
@@ -1309,27 +1309,34 @@ fn the_group_asked_for_most_recently_stays_open() {
     assert_eq!(folded_at(432.0, &[Group::Navigator]), vec![Group::History, Group::Properties, Group::Layers]);
     // Two groups asked for: the older one folds before the newer, both after the others.
     assert_eq!(folded_at(700.0, &[Group::History, Group::Navigator]), vec![Group::Properties]);
-    assert_eq!(folded_at(520.0, &[Group::History, Group::Navigator]), vec![Group::Properties, Group::Layers, Group::Navigator]);
+    // Once Properties and Layers are folded, History and Navigator both fit: Navigator stays open.
+    assert_eq!(folded_at(520.0, &[Group::History, Group::Navigator]), vec![Group::Properties, Group::Layers]);
+    // In a column too short for the two of them the older one folds as well.
+    assert_eq!(folded_at(432.0, &[Group::History, Group::Navigator]), vec![Group::Properties, Group::Layers, Group::Navigator]);
 }
 
 #[test]
-fn a_dragged_height_counts_when_it_is_taller_than_the_comfort() {
+fn a_dragged_height_gives_way_and_never_folds_a_group() {
     let shown = [Group::Properties, Group::Layers];
-    let mut heights = BTreeMap::new();
-    // 200 + 250 + one gap fit in 460 pt.
-    assert!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]).is_empty());
-    // Dragged to 300 pt, Properties and Layers no longer both fit: Properties folds first.
-    heights.insert(Group::Properties, 300.0);
-    assert_eq!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]), vec![Group::Properties]);
-    // A height under the comfort, or an absurd one, counts as the comfort.
-    for bad in [80.0, f32::NAN, -10.0] {
-        heights.insert(Group::Properties, bad);
-        assert!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]).is_empty(), "{bad}");
+    let layers = Group::Layers.comfort_height();
+    let both = Group::Properties.comfort_height() + layers + GAP;
+    // The two comforts and one gap fit: nothing folds, whatever the member dragged.
+    assert!(fold_to_fit(&shown, &[], both, 28.0, GAP, &[]).is_empty());
+    assert_eq!(fold_to_fit(&shown, &[], both - 1.0, 28.0, GAP, &[]), vec![Group::Properties]);
+    // Properties dragged to 400 pt keeps that height while the column has room for it...
+    let mut l = DockLayout::default();
+    l.heights.insert(Group::Properties, 400.0);
+    assert_eq!(l.heights_fit(&shown, 900.0, 28.0, &[], true), vec![(Group::Properties, 400.0), (Group::Layers, 494.0)]);
+    // ...and gives way as the column shortens, Layers keeping its comfort, both still open.
+    for avail in [600.0, 520.0, 460.0] {
+        assert!(fold_to_fit(&shown, &l.collapsed, avail, 28.0, GAP, &[]).is_empty(), "at {avail}");
+        let hs = l.heights_fit(&shown, avail, 28.0, &[], true);
+        assert_eq!(hs, vec![(Group::Properties, avail - GAP - layers), (Group::Layers, layers)], "at {avail}");
     }
-    // The filler takes what is left: a height stored for it does not count.
-    let mut heights = BTreeMap::new();
-    heights.insert(Group::Layers, 900.0);
-    assert!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]).is_empty());
+    // A height stored under the comfort shows as the comfort.
+    l.heights.insert(Group::Properties, 80.0);
+    let hs = l.heights_fit(&shown, 900.0, 28.0, &[], true);
+    assert_eq!(hs[0].1, Group::Properties.comfort_height(), "{hs:?}");
 }
 
 #[test]
@@ -1362,7 +1369,7 @@ fn the_splitter_stops_at_the_comfort_of_its_neighbours() {
     resize_fit(&mut l, &hs, 0, 1000.0, &[], true);
     let hs = l.heights_fit(&shown, 600.0, 28.0, &[], true);
     assert_eq!(hs[1].1, Group::Layers.comfort_height(), "{hs:?}");
-    assert!(fold_to_fit(&shown, &l.collapsed, &l.heights, 600.0, 28.0, GAP, &[]).is_empty(), "the stop itself folds nothing: {hs:?}");
+    assert!(fold_to_fit(&shown, &l.collapsed, 600.0, 28.0, GAP, &[]).is_empty(), "the stop itself folds nothing: {hs:?}");
     // Dragged far up, it stops at its own comfort.
     resize_fit(&mut l, &hs, 0, -1000.0, &[], true);
     let hs = l.heights_fit(&shown, 600.0, 28.0, &[], true);
