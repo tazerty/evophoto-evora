@@ -731,6 +731,9 @@ fn theme_switch_keeps_the_selected_color_group_panel() {
         for (tab, name) in Group::Color.tabs(true).iter().enumerate() {
             let (mut app, _, _) = app_with_layers();
             app.ui.dock_tabs.color = tab;
+            // Evora build (patch LUM-18): not the one-time adoption of Evora's Essentials, which
+            // resets the tabs the first time an Evora theme draws the dock (tested on its own).
+            app.ui.dock_fit.adopted = true;
             let mut h = harness(app, vec2(1200.0, 900.0), ThemeKind::Pro);
             let ctx = h.ctx.clone();
             h.state_mut().set_theme(&ctx, theme);
@@ -917,6 +920,8 @@ fn dock_strips_fit_and_the_chevron_menu_switches_tabs() {
         app.ui.panels.history = true;
         app.ui.panels.navigator = true;
         app.ui.panels.character = true;
+        // Evora build (patch LUM-18): keep these groups under the Evora themes too (no adoption).
+        app.ui.dock_fit.adopted = true;
         let mut h = Harness::builder().with_size(vec2(900.0, 1000.0)).with_pixels_per_point(2.0).build_ui_state(
             |ui, app: &mut EvoPhotoApp| {
                 if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
@@ -1443,7 +1448,7 @@ fn evora_folds_what_the_column_cannot_show_and_the_rail_brings_a_group_back() {
         assert_eq!(expanded_in(&h), vec![Group::Navigator], "{theme:?}: {:?}", last_rects(&h.ctx));
         assert!(h.state().ui.dock.collapsed.is_empty(), "{theme:?}");
         // On an expanded group the rail collapses it, as before; the last one asked for returns,
-        // and Properties with it: their two comforts and four strips (458 pt) fit the column.
+        // and Properties with it: their two comforts, three strips and four gaps (458 pt) fit.
         rail_click(h.state_mut(), Group::Layers, true);
         h.run_steps(3);
         rail_click(h.state_mut(), Group::Layers, true);
@@ -1487,7 +1492,7 @@ fn evora_essentials_opens_properties_over_layers_and_hides_the_rest() {
         let navigator: Vec<&str> = app.ui.dock.visible_tabs(Group::Navigator, true).iter().map(|(_, name)| *name).collect();
         assert_eq!(navigator, vec!["Navigator", "Histogram"], "{theme:?}");
         assert_eq!(app.ui.dock_tabs.navigator, 0, "{theme:?}");
-        assert!(!app.ui.layers_panel_options.show_filters, "{theme:?}: the filter bar is off in this workspace");
+        assert!(app.ui.layers_panel_options.show_filters, "{theme:?}: a workspace leaves the Layers panel options alone");
         assert!(app.ui.dock_fit.recent.is_empty(), "{theme:?}");
         assert_eq!(app.ui.dock_fit.revision, crate::menus::EVORA_LAYOUT_REVISION, "{theme:?}");
         // A group brought back from the rail sits above Layers, which keeps filling the column.
@@ -1530,6 +1535,7 @@ fn evora_adopts_its_essentials_once_and_leaves_a_locked_workspace_alone() {
     assert_eq!(h.state().ui.workspace, "Essentials");
     assert_eq!(h.state().ui.dock_fit.revision, crate::menus::EVORA_LAYOUT_REVISION);
     assert_eq!(snapshot(h.state()).get("evoraLayout"), Some(&json!(crate::menus::EVORA_LAYOUT_REVISION)));
+    assert!(!h.state().ui.layers_panel_options.show_filters, "the Layers filter bar goes off with the adoption");
     // Once: what the member opens afterwards stays.
     rail_click(h.state_mut(), Group::Navigator, true);
     h.run_steps(3);
@@ -1546,6 +1552,7 @@ fn evora_adopts_its_essentials_once_and_leaves_a_locked_workspace_alone() {
     assert!(h.state().ui.panels.navigator && h.state().ui.panels.history && h.state().ui.panels.color);
     assert_eq!(h.state().ui.dock_fit.revision, 0);
     assert!(snapshot(h.state()).get("evoraLayout").is_none());
+    assert!(h.state().ui.layers_panel_options.show_filters);
 }
 
 #[test]

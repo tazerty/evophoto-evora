@@ -1737,9 +1737,9 @@ fn is_essentials(workspace: &str) -> bool {
 /// History, Brushes and Character are hidden (no strip) until the rail or the Window menu opens
 /// them; the order places each above Layers. The Navigator group opens on its Navigator tab with
 /// Histogram one click away and Info hidden (the Window menu brings it back): on the web the
-/// histogram is counted on the UI thread, every 250 ms while the document changes. The Layers
-/// filter bar is off (the panel menu's Filter Options brings it back), which leaves the list its
-/// height. Order, visibility and hidden tab only: no new panel, label or height.
+/// histogram is counted on the UI thread, every 250 ms while the document changes. Order,
+/// visibility and hidden tab only: no new panel, label or height, and the Layers panel options
+/// are left alone, as every workspace leaves them.
 fn evora_essentials(app: &mut EvoPhotoApp) {
     use crate::dock::Group;
     let pro = app.ui.theme.is_pro();
@@ -1756,10 +1756,6 @@ fn evora_essentials(app: &mut EvoPhotoApp) {
     p.brushes = false;
     p.character = false;
     app.ui.dock_fit.revision = EVORA_LAYOUT_REVISION;
-    if app.ui.layers_panel_options.show_filters {
-        app.ui.layers_panel_options.show_filters = false;
-        crate::layers_panel_ui::persist_options(app);
-    }
 }
 
 /// Evora build (patch LUM-18): the revision of Evora's Essentials ([`evora_essentials`]). A layout
@@ -1770,7 +1766,10 @@ pub(crate) const EVORA_LAYOUT_REVISION: u32 = 2;
 /// layout remembered before the current revision of Evora's Essentials (upstream's default,
 /// Evora's earlier one, or anything the member arranged since, a custom dock included) becomes
 /// Evora's Essentials, and the revision is remembered with it so this happens once. A locked
-/// workspace (the Window menu's Lock Workspace) is left exactly as it is.
+/// workspace (the Window menu's Lock Workspace) is left exactly as it is. With that one adoption,
+/// and only while the workspace is remembered (else it would come back at every launch), the
+/// Layers filter bar goes off, which leaves the list its height; the panel menu's Filter Options
+/// brings it back, and neither Essentials nor Reset Workspace turns it off again.
 pub(crate) fn adopt_evora_workspace(app: &mut EvoPhotoApp) {
     if !app.ui.theme.is_slim() || app.ui.dock_fit.adopted {
         return;
@@ -1781,6 +1780,13 @@ pub(crate) fn adopt_evora_workspace(app: &mut EvoPhotoApp) {
     }
     app.ui.workspace = "Essentials".into();
     apply_workspace(app);
+    if app.ui.dock_fit.revision >= EVORA_LAYOUT_REVISION
+        && app.session.prefs().workspace.remember_workspace_changes
+        && app.ui.layers_panel_options.show_filters
+    {
+        app.ui.layers_panel_options.show_filters = false;
+        crate::layers_panel_ui::persist_options(app);
+    }
 }
 
 #[cfg(test)]
