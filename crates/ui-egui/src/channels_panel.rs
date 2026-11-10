@@ -87,9 +87,8 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
     let shown_colors = if colors > 1 { colors } else { 0 };
     let mut actions: Vec<(String, Value)> = Vec::new();
     // The buttons sit in a footer at the panel's bottom, like Photoshop's.
-    let footer = widgets::footer_height(ui) + ui.spacing().item_spacing.y;
-    let fill = ui.available_height() > footer + 60.0;
-    let rows_h = if fill { ui.available_height() - footer } else { f32::INFINITY };
+    // Evora build (patch LUM-18): kept in view under the Evora themes, as in the Layers panel.
+    let (fill, rows_h) = widgets::footer_list_height(ui);
     let mut mask_click = None;
     let mut drawn = Vec::new();
     egui::ScrollArea::vertical().max_height(rows_h).min_scrolled_height(if fill { rows_h } else { 0.0 }).auto_shrink([false, !fill]).show(ui, |ui| {

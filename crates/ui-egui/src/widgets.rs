@@ -184,6 +184,20 @@ pub fn footer_height(ui: &Ui) -> f32 {
     1.0 + FOOTER_BAR - body_margin(Tokens::get(ui.ctx()).pro).bottom as f32
 }
 
+/// The room a panel's scrolling list takes above its [`panel_footer`]: `(fill, height)`. With
+/// more than 60 pt left for it the list fills that height and the footer sits at the panel's
+/// bottom; with less it is not bound (`fill` false, an infinite height) and the footer follows it.
+/// Evora build (patch LUM-18): under the Evora themes the list is always bound to the height left
+/// (none at worst) and scrolls in it, so the footer and its buttons never leave the panel when
+/// room is short.
+pub fn footer_list_height(ui: &Ui) -> (bool, f32) {
+    let footer = footer_height(ui) + ui.spacing().item_spacing.y;
+    let avail = ui.available_height();
+    let fill = avail > footer + 60.0 || (Tokens::get(ui.ctx()).slim() && avail.is_finite());
+    let height = if fill { (avail - footer).max(0.0) } else { f32::INFINITY };
+    (fill, height)
+}
+
 /// A panel footer as in Photoshop's Layers and History panels: a bar of buttons under a line that
 /// runs from edge to edge of the panel, the buttons centred in the bar's height and laid out from
 /// the right. Drawn last in a body that fills its group (leave it [`footer_height`]), the bar ends
@@ -2439,6 +2453,29 @@ mod tests {
         let (button, clip, body) = h.state().expect("the footer drew its button");
         assert!(button.bottom() > body.bottom(), "the bar really overruns the body, or this test proves nothing: {button:?} vs {body:?}");
         assert!(clip.contains_rect(button), "the whole button is inside the clip: {button:?} not in {clip:?}");
+    }
+
+    /// Evora build (patch LUM-18): under the Evora themes a list is bound to the height left above
+    /// its footer however short the panel, so the footer stays in view; upstream's themes leave it
+    /// unbound under 60 pt, as they always did.
+    #[test]
+    fn a_short_panel_keeps_its_footer_in_view_under_the_evora_themes() {
+        use crate::theme::ThemeKind;
+        for (theme, want) in [(ThemeKind::ProMedium, (false, f32::INFINITY)), (ThemeKind::Evora, (true, 17.0)), (ThemeKind::EvoraLight, (true, 17.0))] {
+            let mut h = Harness::new_ui_state(
+                |ui, s: &mut Option<(bool, f32)>| {
+                    // 40 pt of body: a Pro footer (23 pt) and 17 pt of list, less than upstream's 60.
+                    let body = egui::Rect::from_min_size(ui.max_rect().min, egui::vec2(220.0, 40.0));
+                    let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
+                    body_ui.spacing_mut().item_spacing.y = 0.0;
+                    *s = Some(super::footer_list_height(&body_ui));
+                },
+                None,
+            );
+            crate::EvoPhotoApp::setup_context(&h.ctx, theme);
+            h.run();
+            assert_eq!(h.state().expect("the body was measured"), want, "{theme:?}");
+        }
     }
 
     /// #3789: a plain text field is one boxed, outline-free input whose text-selection colour stays

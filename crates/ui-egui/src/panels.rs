@@ -96,6 +96,13 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
     let sections = visible_sections(&app.session.prefs().toolbar.hidden);
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
+    // Evora build (patch LUM-18): under the Evora themes a toolbar too short for one column takes
+    // two by itself, like the chevron's choice but without writing it, and goes back to one when
+    // the room returns. Whether one column fits is measured in the panel (below) and read here on
+    // the next frame, the panel's width being set before it is drawn.
+    let slots: usize = sections.iter().map(Vec::len).sum();
+    let fits_id = egui::Id::new("toolbar-one-column-fits");
+    let double = double || (t.slim() && ui.ctx().data(|d| d.get_temp::<bool>(fits_id)) == Some(false));
     let w = if double { w1 + bx + 2.0 } else { w1 };
     crate::direction::start_panel("toolbar")
         .resizable(false)
@@ -140,11 +147,24 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
             // doesn't hide them.)
             let tool_tips = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).is_none() && !ui.input(|i| i.pointer.primary_down());
             let ctx = ui.ctx().clone();
-            let footer = (if t.pro { 8.0 } else { 14.0 })
-                + chips_height(t.pro, t.round_chips, t.round_chips && double)
-                + 8.0
-                + if double { bx } else { bx * 2.0 + 3.0 }
-                + 6.0;
+            let footer_for = |double: bool| {
+                (if t.pro { 8.0 } else { 14.0 })
+                    + chips_height(t.pro, t.round_chips, t.round_chips && double)
+                    + 8.0
+                    + if double { bx } else { bx * 2.0 + 3.0 }
+                    + 6.0
+            };
+            let footer = footer_for(double);
+            // Evora build (patch LUM-18): one column needs the header (a 24 pt chevron and its
+            // spacing), a row per slot and the Edit Toolbar button (3 pt apart), and its footer.
+            if t.slim() {
+                let one_column = 32.0 + (slots as f32 + 1.0) * (bx + 3.0) + footer_for(false);
+                let fits = full.height() >= one_column;
+                if ctx.data(|d| d.get_temp::<bool>(fits_id)) != Some(fits) {
+                    ctx.data_mut(|d| d.insert_temp(fits_id, fits));
+                    ctx.request_repaint();
+                }
+            }
             // As tall as the tools, so the colour chips sit right under them (Photoshop); a column
             // taller than the window scrolls and keeps the chips at the bottom.
             egui::ScrollArea::vertical()
@@ -1678,12 +1698,25 @@ pub fn status_bar_heights(t: &Tokens) -> (f32, f32) {
     }
 }
 
+/// Evora build (patch LUM-18): what the status bar leaves free at its physical right end under
+/// the Evora themes (points). The host page floats a 60 x 28 px badge there, 8 px from the
+/// window's right edge whatever the reading direction: 8 + 60 + 8.
+const STATUS_BAR_CORNER: i8 = 76;
+
 pub fn status_bar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
+    let right: i8 = if t.slim() { STATUS_BAR_CORNER } else { 10 };
     egui::Panel::bottom("status_bar")
         .exact_size(status_bar_heights(&t).0)
-        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0)))
+        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin { left: 10, right, top: 0, bottom: 0 }))
         .show(ui, |ui| {
+            // Evora build (patch LUM-18): no control or text is drawn in the corner left to the
+            // host's badge, not even a long message running past the row.
+            if t.slim() {
+                let mut clip = ui.clip_rect();
+                clip.max.x = clip.max.x.min(ui.max_rect().right());
+                ui.set_clip_rect(clip);
+            }
             let control_h = status_bar_heights(&t).1;
             // Read from the right in a right-to-left UI, with the trailing group at the left.
             crate::direction::horizontal_centered(ui, |ui| {
@@ -2708,9 +2741,9 @@ fn layers(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
     // Top of the stack first, groups above their contents, closed groups' contents hidden (#126).
     let rows = crate::layer_tree_ui::panel_rows(app, &doc);
     let ctx = ui.ctx().clone();
-    let footer = widgets::footer_height(ui) + ui.spacing().item_spacing.y;
-    let fill = ui.available_height() > footer + 60.0;
-    let rows_h = if fill { ui.available_height() - footer } else { f32::INFINITY };
+    // Evora build (patch LUM-18): under the Evora themes the footer stays in view and the list
+    // scrolls in the height left, however short (`widgets::footer_list_height`).
+    let (fill, rows_h) = widgets::footer_list_height(ui);
     egui::ScrollArea::vertical()
         // Keep each document's position independent, even when tab indices change (#5522).
         .id_salt(("layer-rows", doc.id.0))
