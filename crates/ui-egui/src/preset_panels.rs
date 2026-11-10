@@ -140,7 +140,11 @@ pub fn menu(app: &mut EvoPhotoApp, id: &str, params: &Value) -> Option<Result<Va
     let want = params.get("show").and_then(Value::as_bool);
     if let Some(tab) = color_tab(id) {
         // A collapsed Color group counts as not showing: the item expands it (#129).
-        let showing = app.ui.panels.color && app.ui.dock_tabs.color == tab && !app.ui.dock.is_collapsed(crate::dock::Group::Color);
+        // Evora build (patch LUM-18): so does one folded for want of room under the Evora themes.
+        let showing = app.ui.panels.color
+            && app.ui.dock_tabs.color == tab
+            && !app.ui.dock.is_collapsed(crate::dock::Group::Color)
+            && !crate::dock::is_folded(&app.ui, crate::dock::Group::Color);
         let show = want.unwrap_or(!showing);
         app.ui.panels.color = show || (app.ui.panels.color && app.ui.dock_tabs.color != tab);
         if show {

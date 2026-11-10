@@ -1552,6 +1552,10 @@ pub struct UiState {
     /// One-frame focus/raise request from an explicit panel reveal.
     #[serde(skip)]
     pub docking_reveal: Option<String>,
+    /// Evora build (patch LUM-18): what the native dock derives under the Evora themes (the
+    /// groups asked for most recently, those folded for want of room). In memory only.
+    #[serde(skip)]
+    pub dock_fit: crate::dock::DockFit,
     /// Which chip the Color panel edits, and how it shows the colour.
     #[serde(default)]
     pub color_panel: ColorPanelState,
@@ -1692,6 +1696,7 @@ impl Default for UiState {
             docking_generation: 0,
             docking_collapsed: Vec::new(),
             docking_reveal: None,
+            dock_fit: Default::default(),
             color_panel: Default::default(),
             brush_section: 0,
             brush_tab: 0,

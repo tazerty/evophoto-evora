@@ -649,7 +649,8 @@ fn flag_param(p: &Value, cur: bool) -> bool {
 fn run(app: &mut EvoPhotoApp, ctx: &egui::Context, id: &str, p: &Value) -> Result<Value, String> {
     if let Some((panel, tab)) = panel_tab(app, id) {
         let group = crate::dock::Group::from_key(panel);
-        let collapsed = group.is_some_and(|g| app.ui.dock.is_collapsed(g));
+        // Evora build (patch LUM-18): a group folded for want of room counts as collapsed.
+        let collapsed = group.is_some_and(|g| app.ui.dock.is_collapsed(g) || crate::dock::is_folded(&app.ui, g));
         let (vis, cur) = panel_state(app, panel);
         let requested = match p.get("show").or_else(|| p.get("on")) {
             None => None,

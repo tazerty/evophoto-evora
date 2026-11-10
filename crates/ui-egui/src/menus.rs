@@ -677,7 +677,10 @@ pub(crate) fn invoke_unguarded(app: &mut EvoPhotoApp, ctx: &egui::Context, id: &
         }
         t if t.starts_with("window.toggle.") => {
             // A shown but collapsed dock group is expanded rather than hidden (#129).
-            if let Some(g) = crate::dock::Group::from_key(&t["window.toggle.".len()..]).filter(|g| g.shown(&app.ui.panels) && app.ui.dock.is_collapsed(*g)) {
+            // Evora build (patch LUM-18): so is one folded for want of room under the Evora themes.
+            if let Some(g) = crate::dock::Group::from_key(&t["window.toggle.".len()..])
+                .filter(|g| g.shown(&app.ui.panels) && (app.ui.dock.is_collapsed(*g) || crate::dock::is_folded(&app.ui, *g)))
+            {
                 crate::dock::reveal(app, g);
                 return Ok(Value::Null);
             }

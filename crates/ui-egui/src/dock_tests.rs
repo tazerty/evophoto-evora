@@ -1265,3 +1265,188 @@ fn workspace_layouts_leave_the_layers_panel_options_alone() {
     assert_ne!(app.ui.layers_panel_options.thumbnail_size, crate::state::LayerThumbnailSize::Large);
     assert_eq!(app.session.prefs().dialogs.get("ui.layersPanelOptions").cloned(), stored);
 }
+
+// Evora build (patch LUM-18): under the Evora themes a group is usable or folded, never squeezed.
+
+/// Yesterday's Evora layout: four expanded groups, and Color collapsed by the member.
+const EVORA_FOUR: [Group; 5] = [Group::Navigator, Group::Properties, Group::History, Group::Layers, Group::Color];
+
+fn folded_at(avail: f32, recent: &[Group]) -> Vec<Group> {
+    fold_to_fit(&EVORA_FOUR, &[Group::Color], &BTreeMap::new(), avail, 28.0, GAP, recent)
+}
+
+/// Comforts: Navigator 170, Properties 200, History 160, Layers 250; Color's strip 28; four gaps.
+/// All four need 832 pt, without Navigator 690, without History too 558, Layers alone 386.
+#[test]
+fn a_short_column_folds_groups_until_the_others_have_their_comfort() {
+    let all_but_layers = vec![Group::Navigator, Group::History, Group::Properties];
+    for (avail, want) in
+        [(432.0, all_but_layers.clone()), (520.0, all_but_layers), (700.0, vec![Group::Navigator]), (900.0, Vec::new()), (1300.0, Vec::new())]
+    {
+        assert_eq!(folded_at(avail, &[]), want, "at {avail}");
+    }
+}
+
+#[test]
+fn the_last_expanded_group_never_folds() {
+    let none: [Group; 0] = [];
+    for avail in [0.0, -50.0, 1.0, 60.0, 432.0, f32::NAN, f32::INFINITY] {
+        for recent in [&none[..], &[Group::Navigator][..], &[Group::History, Group::Properties][..]] {
+            let folded = folded_at(avail, recent);
+            let open = EVORA_FOUR.iter().filter(|g| **g != Group::Color && !folded.contains(g)).count();
+            assert!(open >= 1, "at {avail} with {recent:?}: {folded:?}");
+            assert!(!folded.contains(&Group::Color), "a group the member collapsed is not folded as well");
+        }
+    }
+    // A single expanded group stays open however short the column is.
+    assert!(fold_to_fit(&[Group::Layers], &[], &BTreeMap::new(), 10.0, 28.0, GAP, &[]).is_empty());
+    assert!(fold_to_fit(&[], &[], &BTreeMap::new(), 500.0, 28.0, GAP, &[]).is_empty());
+}
+
+#[test]
+fn the_group_asked_for_most_recently_stays_open() {
+    // Navigator, the first to fold when nothing was asked for, is the one kept once asked for.
+    assert_eq!(folded_at(432.0, &[Group::Navigator]), vec![Group::History, Group::Properties, Group::Layers]);
+    // Two groups asked for: the older one folds before the newer, both after the others.
+    assert_eq!(folded_at(700.0, &[Group::History, Group::Navigator]), vec![Group::Properties]);
+    assert_eq!(folded_at(520.0, &[Group::History, Group::Navigator]), vec![Group::Properties, Group::Layers, Group::Navigator]);
+}
+
+#[test]
+fn a_dragged_height_counts_when_it_is_taller_than_the_comfort() {
+    let shown = [Group::Properties, Group::Layers];
+    let mut heights = BTreeMap::new();
+    // 200 + 250 + one gap fit in 460 pt.
+    assert!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]).is_empty());
+    // Dragged to 300 pt, Properties and Layers no longer both fit: Properties folds first.
+    heights.insert(Group::Properties, 300.0);
+    assert_eq!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]), vec![Group::Properties]);
+    // A height under the comfort, or an absurd one, counts as the comfort.
+    for bad in [80.0, f32::NAN, -10.0] {
+        heights.insert(Group::Properties, bad);
+        assert!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]).is_empty(), "{bad}");
+    }
+    // The filler takes what is left: a height stored for it does not count.
+    let mut heights = BTreeMap::new();
+    heights.insert(Group::Layers, 900.0);
+    assert!(fold_to_fit(&shown, &[], &heights, 460.0, 28.0, GAP, &[]).is_empty());
+}
+
+#[test]
+fn expanded_groups_get_their_comfort_and_the_column_never_overflows() {
+    let mut l = DockLayout::default();
+    l.set_collapsed(Group::Color, true);
+    for avail in [432.0, 520.0, 700.0, 900.0, 1300.0] {
+        let folded = folded_at(avail, &[]);
+        let hs = l.heights_fit(&EVORA_FOUR, avail, 28.0, &folded, true);
+        let total: f32 = hs.iter().map(|(_, h)| h).sum::<f32>() + 4.0 * GAP;
+        assert!((total - avail).abs() < 1e-3, "at {avail}: {hs:?}");
+        for (g, h) in &hs {
+            if *g == Group::Color || folded.contains(g) {
+                assert_eq!(*h, 28.0, "{g:?} at {avail}");
+            } else {
+                assert!(*h >= g.comfort_height(), "{g:?} at {avail}: {hs:?}");
+            }
+        }
+    }
+    // Even one comfort does not fit: the group takes the column and no more (its body scrolls).
+    assert_eq!(DockLayout::default().heights_fit(&[Group::Layers], 120.0, 28.0, &[], true), vec![(Group::Layers, 120.0)]);
+}
+
+#[test]
+fn the_splitter_stops_at_the_comfort_of_its_neighbours() {
+    let shown = [Group::Properties, Group::Layers];
+    let mut l = DockLayout::default();
+    let hs = l.heights_fit(&shown, 600.0, 28.0, &[], true);
+    // Dragged far down, Properties stops where Layers is left its comfort.
+    resize_fit(&mut l, &hs, 0, 1000.0, &[], true);
+    let hs = l.heights_fit(&shown, 600.0, 28.0, &[], true);
+    assert_eq!(hs[1].1, Group::Layers.comfort_height(), "{hs:?}");
+    assert!(fold_to_fit(&shown, &l.collapsed, &l.heights, 600.0, 28.0, GAP, &[]).is_empty(), "the stop itself folds nothing: {hs:?}");
+    // Dragged far up, it stops at its own comfort.
+    resize_fit(&mut l, &hs, 0, -1000.0, &[], true);
+    let hs = l.heights_fit(&shown, 600.0, 28.0, &[], true);
+    assert_eq!(hs[0].1, Group::Properties.comfort_height(), "{hs:?}");
+}
+
+#[test]
+fn upstream_layouts_are_what_they_were() {
+    let mut mine = DockLayout::default();
+    mine.heights.insert(Group::Properties, 340.0);
+    mine.set_collapsed(Group::Color, true);
+    for l in [DockLayout::default(), mine] {
+        for avail in [0.0, 300.0, 432.0, 520.0, 700.0, 900.0, 1300.0] {
+            assert_eq!(l.heights_for(&EVORA_FOUR, avail, 28.0), l.heights_fit(&EVORA_FOUR, avail, 28.0, &[], false), "at {avail}");
+        }
+    }
+    // Upstream squeezes below the comfort and overflows a column shorter than its minimums.
+    let hs = DockLayout::default().heights_for(&EVORA_FOUR, 300.0, 28.0);
+    assert!(hs.iter().all(|(g, h)| *h == g.min_height()), "{hs:?}");
+}
+
+fn expanded_in(h: &Harness<'static, EvoPhotoApp>) -> Vec<Group> {
+    last_rects(&h.ctx).into_iter().filter(|(_, r)| r.height() > 44.0).map(|(g, _)| g).collect()
+}
+
+fn five_groups(h: &mut Harness<'static, EvoPhotoApp>) {
+    let ui = &mut h.state_mut().ui;
+    ui.docking = None;
+    ui.dock = DockLayout::default();
+    ui.dock_tabs = Default::default();
+    ui.panels = crate::state::Panels { navigator: true, history: true, ..Default::default() };
+    h.run_steps(3);
+}
+
+#[test]
+fn upstream_themes_squeeze_and_never_fold() {
+    for theme in [ThemeKind::ProMedium, ThemeKind::Pro] {
+        let (app, _, _) = app_with_layers();
+        let mut h = harness(app, vec2(1200.0, 480.0), theme);
+        five_groups(&mut h);
+        assert_eq!(expanded_in(&h).len(), 5, "{theme:?}: {:?}", last_rects(&h.ctx));
+        assert!(h.state().ui.dock_fit.folded.is_empty() && h.state().ui.dock_fit.recent.is_empty(), "{theme:?}");
+        // The rail collapses an expanded group there, as it always did.
+        rail_click(h.state_mut(), Group::Navigator, true);
+        assert!(h.state().ui.dock.is_collapsed(Group::Navigator), "{theme:?}");
+        assert!(h.state().ui.dock_fit.recent.is_empty(), "{theme:?}");
+    }
+}
+
+#[test]
+fn evora_folds_what_the_column_cannot_show_and_the_rail_brings_a_group_back() {
+    for theme in [ThemeKind::Evora, ThemeKind::EvoraLight] {
+        let (app, _, _) = app_with_layers();
+        let mut h = harness(app, vec2(1200.0, 480.0), theme);
+        five_groups(&mut h);
+        assert_eq!(expanded_in(&h), vec![Group::Layers], "{theme:?}: {:?}", last_rects(&h.ctx));
+        assert!(is_folded(&h.state().ui, Group::Navigator), "{theme:?}");
+        assert!(h.state().ui.dock.collapsed.is_empty(), "{theme:?}: the fold is derived, never stored");
+        // The rail asks for a folded group: it opens, and Layers folds in its place.
+        rail_click(h.state_mut(), Group::Navigator, true);
+        h.run_steps(3);
+        assert_eq!(expanded_in(&h), vec![Group::Navigator], "{theme:?}: {:?}", last_rects(&h.ctx));
+        assert!(h.state().ui.dock.collapsed.is_empty(), "{theme:?}");
+        // On an expanded group the rail collapses it, as before; the last one asked for returns.
+        rail_click(h.state_mut(), Group::Layers, true);
+        h.run_steps(3);
+        rail_click(h.state_mut(), Group::Layers, true);
+        h.run_steps(3);
+        assert!(h.state().ui.dock.is_collapsed(Group::Layers), "{theme:?}");
+        assert_eq!(expanded_in(&h), vec![Group::Navigator], "{theme:?}: {:?}", last_rects(&h.ctx));
+        // Nothing drawn runs past the column.
+        let column = last_rects(&h.ctx).iter().map(|(_, r)| r.bottom()).fold(0.0, f32::max);
+        assert!(column <= 480.0, "{theme:?}: {column}");
+    }
+}
+
+#[test]
+fn evora_groups_come_back_when_the_column_grows() {
+    let (app, _, _) = app_with_layers();
+    let mut h = harness(app, vec2(1200.0, 1300.0), ThemeKind::Evora);
+    five_groups(&mut h);
+    assert_eq!(expanded_in(&h).len(), 5, "{:?}", last_rects(&h.ctx));
+    assert!(h.state().ui.dock_fit.folded.is_empty());
+    for (g, r) in last_rects(&h.ctx) {
+        assert!(r.height() >= g.comfort_height(), "{g:?}: {r:?}");
+    }
+}

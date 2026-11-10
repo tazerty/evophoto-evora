@@ -1782,7 +1782,12 @@ pub fn right_dock(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
                 for (icon, name, g) in entries {
                     // Studio floats Properties outside the dock.
                     let docked = t.pro || g != Group::Properties;
-                    let on = if customized { crate::panel_docking::rail_on(app, g) } else { g.shown(&p) && !(docked && app.ui.dock.is_collapsed(g)) };
+                    // Evora build (patch LUM-18): a group folded for want of room is not lit either.
+                    let on = if customized {
+                        crate::panel_docking::rail_on(app, g)
+                    } else {
+                        g.shown(&p) && !(docked && (app.ui.dock.is_collapsed(g) || crate::dock::is_folded(&app.ui, g)))
+                    };
                     if icons::rail_button(ui, icon, rb, on, name).clicked() {
                         if customized {
                             crate::panel_docking::rail_click(app, g);
@@ -2977,6 +2982,8 @@ fn layers(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
             app.ui.panels.properties = true;
             app.ui.dock_tabs.properties = 0;
             app.ui.dock.collapsed.retain(|g| *g != crate::dock::Group::Properties);
+            // Evora build (patch LUM-18): Properties was asked for; it is kept open first.
+            crate::dock::touch_recent(app, crate::dock::Group::Properties);
             continue;
         }
         if p.is_null() || id == "layer.newFillLayer.solidColor" {

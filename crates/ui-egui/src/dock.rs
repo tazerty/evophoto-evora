@@ -105,6 +105,35 @@ impl Group {
         }
     }
 
+    /// Evora build (patch LUM-18): the height (points, tab strip included) under which a group is
+    /// not usable. Under the Evora themes an expanded group gets at least this much, and a group
+    /// the column has no such room for is folded to its tab strip instead ([`fold_to_fit`]).
+    pub fn comfort_height(self) -> f32 {
+        match self {
+            Group::Layers => 250.0,
+            Group::Properties => 200.0,
+            Group::Character => 220.0,
+            Group::Color => 180.0,
+            Group::Navigator => 170.0,
+            Group::Brushes => 190.0,
+            Group::History => 160.0,
+        }
+    }
+
+    /// Evora build (patch LUM-18): which group folds first for want of room among those the
+    /// member has not asked for: the higher, the sooner. Layers folds last.
+    fn fold_rank(self) -> usize {
+        match self {
+            Group::Navigator => 6,
+            Group::Color => 5,
+            Group::Brushes => 4,
+            Group::Character => 3,
+            Group::History => 2,
+            Group::Properties => 1,
+            Group::Layers => 0,
+        }
+    }
+
     pub fn tabs(self, pro: bool) -> &'static [&'static str] {
         match self {
             // Photoshop Essentials: Color | Swatches | Gradients | Patterns.
@@ -334,16 +363,29 @@ impl DockLayout {
     /// the filler gets its preferred height (Layers: ~10 rows, #147); when the column is still
     /// too short every group gives way down to its minimum height.
     pub fn heights_for(&self, shown: &[Group], avail: f32, strip: f32) -> Vec<(Group, f32)> {
+        self.heights_fit(shown, avail, strip, &[], false)
+    }
+
+    /// Evora build (patch LUM-18): [`DockLayout::heights_for`] with the groups in `folded` drawn
+    /// as their tab strip ([`fold_to_fit`]) and, with `comfort` (the Evora themes), every expanded
+    /// group kept at [`Group::comfort_height`] or more: it is the floor both passes give way down
+    /// to, and the filler takes what is left instead of running past the column when even its
+    /// comfort does not fit (its body scrolls). Without `folded` and `comfort` this is upstream's
+    /// layout, unchanged.
+    pub fn heights_fit(&self, shown: &[Group], avail: f32, strip: f32, folded: &[Group], comfort: bool) -> Vec<(Group, f32)> {
         let avail = if avail.is_finite() { avail.max(0.0) } else { 0.0 };
-        let filler = shown.iter().rposition(|g| !self.is_collapsed(*g));
+        let closed = |g: Group| self.is_collapsed(g) || folded.contains(&g);
+        let filler = shown.iter().rposition(|g| !closed(*g));
         let mut hs: Vec<f32> = shown
             .iter()
             .enumerate()
             .map(|(i, g)| {
-                if self.is_collapsed(*g) {
+                if closed(*g) {
                     strip
                 } else if Some(i) == filler {
                     0.0
+                } else if comfort {
+                    self.height(*g).max(g.comfort_height())
                 } else {
                     self.height(*g)
                 }
@@ -351,8 +393,8 @@ impl DockLayout {
             .collect();
         if let Some(f) = filler {
             let gaps = GAP * shown.len().saturating_sub(1) as f32;
-            let min_fill = shown.get(f).map_or(0.0, |g| g.min_height());
-            let pref_fill = shown.get(f).map_or(0.0, |g| g.preferred_fill());
+            let min_fill = shown.get(f).map_or(0.0, |g| if comfort { g.comfort_height() } else { g.min_height() });
+            let pref_fill = shown.get(f).map_or(0.0, |g| if comfort { g.preferred_fill().max(g.comfort_height()) } else { g.preferred_fill() });
             let used: f32 = hs.iter().sum::<f32>() + gaps;
             let mut deficit = (used + pref_fill - avail).max(0.0);
             for i in (0..f).rev() {
@@ -360,11 +402,12 @@ impl DockLayout {
                     break;
                 }
                 let Some(g) = shown.get(i) else { continue };
-                if self.is_collapsed(*g) || self.heights.contains_key(g) {
+                if closed(*g) || self.heights.contains_key(g) {
                     continue;
                 }
                 if let Some(h) = hs.get_mut(i) {
-                    let give = (*h - g.compact_height()).max(0.0).min(deficit);
+                    let floor = if comfort { g.comfort_height() } else { g.compact_height() };
+                    let give = (*h - floor).max(0.0).min(deficit);
                     *h -= give;
                     deficit -= give;
                 }
@@ -377,22 +420,99 @@ impl DockLayout {
                     break;
                 }
                 let Some(g) = shown.get(i) else { continue };
-                if self.is_collapsed(*g) {
+                if closed(*g) {
                     continue;
                 }
                 if let Some(h) = hs.get_mut(i) {
-                    let give = (*h - g.min_height()).max(0.0).min(deficit);
+                    let floor = if comfort { g.comfort_height() } else { g.min_height() };
+                    let give = (*h - floor).max(0.0).min(deficit);
                     *h -= give;
                     deficit -= give;
                 }
             }
             let rest = avail - hs.iter().sum::<f32>() - gaps;
             if let Some(h) = hs.get_mut(f) {
-                *h = rest.max(min_fill);
+                *h = if comfort { rest.max(0.0) } else { rest.max(min_fill) };
             }
         }
         shown.iter().copied().zip(hs).collect()
     }
+}
+
+/// Evora build (patch LUM-18): what the dock derives each frame under the Evora themes, kept in
+/// memory only (`UiState::dock_fit`, never serialised, never part of a saved layout).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DockFit {
+    /// The groups the member asked for (rail, Window menu, a strip or a tab clicked, a group
+    /// expanded), most recent first: the last ones to fold when the column is too short.
+    pub recent: Vec<Group>,
+    /// The groups folded to their tab strip for want of room when the dock was last drawn
+    /// ([`fold_to_fit`]). Never written to [`DockLayout::collapsed`]: they come back on their own
+    /// when the column grows.
+    pub folded: Vec<Group>,
+}
+
+/// Evora build (patch LUM-18): "a panel is usable or folded, never squeezed". The groups of
+/// `shown` (display order) to draw as their tab strip because a column `avail` points tall cannot
+/// give every expanded group its [`Group::comfort_height`]: while the expanded groups (a height
+/// the member dragged counts when it is taller than the comfort; the last expanded group, the
+/// filler, takes what is left, so its comfort alone counts), the `strip`-high strips of the
+/// others and the `gap`s between groups do not fit, and more than one group is expanded, the
+/// group asked for least recently folds. `recent` lists the groups the member asked for, most
+/// recent first; the groups missing from it fold before those, Navigator first and Layers last.
+/// `collapsed` (the member's own collapsed groups) and `heights` are
+/// [`DockLayout`]'s. The last expanded group never folds. Pure: nothing is stored.
+pub fn fold_to_fit(shown: &[Group], collapsed: &[Group], heights: &BTreeMap<Group, f32>, avail: f32, strip: f32, gap: f32, recent: &[Group]) -> Vec<Group> {
+    let avail = if avail.is_finite() { avail.max(0.0) } else { 0.0 };
+    let gaps = gap * shown.len().saturating_sub(1) as f32;
+    let mut folded: Vec<Group> = Vec::new();
+    loop {
+        let open: Vec<Group> = shown.iter().copied().filter(|g| !collapsed.contains(g) && !folded.contains(g)).collect();
+        if open.len() < 2 {
+            break;
+        }
+        let filler = open.last().copied();
+        let wanted: f32 = shown
+            .iter()
+            .map(|g| {
+                if !open.contains(g) {
+                    strip
+                } else if Some(*g) == filler {
+                    g.comfort_height()
+                } else {
+                    match heights.get(g) {
+                        Some(h) if h.is_finite() => h.clamp(g.comfort_height(), MAX_HEIGHT),
+                        _ => g.comfort_height(),
+                    }
+                }
+            })
+            .sum();
+        // Half a point of slack: a splitter dragged to its stop leaves the sum at `avail`.
+        if wanted + gaps <= avail + 0.5 {
+            break;
+        }
+        let rank = |g: &Group| recent.iter().position(|r| r == g).unwrap_or(recent.len() + 1 + g.fold_rank());
+        let Some(victim) = open.iter().copied().max_by_key(rank) else { break };
+        folded.push(victim);
+    }
+    folded
+}
+
+/// Evora build (patch LUM-18): whether `g` was drawn folded for want of room by the native dock
+/// under an Evora theme ([`fold_to_fit`]). Always false in the custom dock and upstream's themes.
+pub fn is_folded(ui: &crate::state::UiState, g: Group) -> bool {
+    ui.theme.is_slim() && ui.docking.is_none() && ui.dock_fit.folded.contains(&g)
+}
+
+/// Evora build (patch LUM-18): the member just asked for `g`: it goes first among the groups kept
+/// open when the column is too short ([`DockFit::recent`]). Nothing under upstream's themes.
+pub(crate) fn touch_recent(app: &mut EvoPhotoApp, g: Group) {
+    if !app.ui.theme.is_slim() {
+        return;
+    }
+    let recent = &mut app.ui.dock_fit.recent;
+    recent.retain(|r| *r != g);
+    recent.insert(0, g);
 }
 
 /// Show `g` and expand it (Window › <panel>, the icon rail): a panel asked for is always
@@ -403,20 +523,28 @@ pub fn reveal(app: &mut EvoPhotoApp, g: Group) {
     let pro = app.ui.theme.is_pro();
     app.ui.dock.show_tab(g, selected, pro);
     app.ui.dock.set_collapsed(g, false);
+    touch_recent(app, g);
 }
 
 /// Icon rail click: a hidden group is shown, a collapsed one expanded and an expanded one
 /// collapsed to its tab strip. A docked group is never hidden from the rail (it used to
 /// toggle visibility, so one stray click made a panel vanish: #129); `docked` is false for
 /// Studio's floating Properties card, which the rail shows and hides.
+/// Evora build (patch LUM-18): a group folded for want of room ([`fold_to_fit`]) is asked for
+/// instead: it comes back and the group asked for least recently folds in its place.
 pub fn rail_click(app: &mut EvoPhotoApp, g: Group, docked: bool) {
     if !g.shown(&app.ui.panels) {
         reveal(app, g);
     } else if !docked {
         *g.shown_mut(&mut app.ui.panels) = false;
+    } else if is_folded(&app.ui, g) {
+        touch_recent(app, g);
     } else {
         let collapse = !app.ui.dock.is_collapsed(g);
         app.ui.dock.set_collapsed(g, collapse);
+        if !collapse {
+            touch_recent(app, g);
+        }
     }
 }
 
@@ -461,6 +589,15 @@ fn rects_id() -> egui::Id {
 fn peek_id() -> egui::Id {
     egui::Id::new("dock-peek")
 }
+
+/// Evora build (patch LUM-18): the group a click just brought back from its fold, and when
+/// (`InputState::time`), so the second click of a double-click does not collapse it.
+fn recall_id() -> egui::Id {
+    egui::Id::new("dock-recall")
+}
+
+/// Evora build (patch LUM-18): how long (seconds) after such a click a double-click is ignored.
+const RECALL_GRACE: f64 = 0.5;
 
 fn auto_collapse_peek(app: &mut EvoPhotoApp, ctx: &egui::Context) {
     let Some(g) = ctx.data(|d| d.get_temp::<Option<Group>>(peek_id())).flatten() else { return };
@@ -514,7 +651,23 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
     let strip = if t.pro { 28.0 } else { 40.0 };
     let order: Vec<Group> = app.ui.dock.order().into_iter().filter(|g| shown.contains(g)).collect();
     let area = ui.available_rect_before_wrap();
-    let heights = app.ui.dock.heights_for(&order, area.height(), strip);
+    // Evora build (patch LUM-18): under the Evora themes a group is usable or folded, never
+    // squeezed. The groups the column has no room for are drawn as their strip this frame; the
+    // set is derived, never written to the layout, so they come back when the column grows.
+    let comfort = t.slim();
+    let folded: Vec<Group> = if comfort {
+        fold_to_fit(&order, &app.ui.dock.collapsed, &app.ui.dock.heights, area.height(), strip, GAP, &app.ui.dock_fit.recent)
+    } else {
+        Vec::new()
+    };
+    if app.ui.dock_fit.folded != folded {
+        app.ui.dock_fit.folded = folded.clone();
+    }
+    let now = ui.input(|i| i.time);
+    let recalled_before = if comfort { ui.ctx().data(|d| d.get_temp::<(Group, f64)>(recall_id())) } else { None };
+    let mut asked: Vec<Group> = Vec::new();
+    let mut recalled: Option<Group> = None;
+    let heights = app.ui.dock.heights_fit(&order, area.height(), strip, &folded, comfort);
     let locked = app.session.prefs().workspace_locked;
     let rects = rects_after_layout(&heights, area);
     let mut actions: Vec<Action> = Vec::new();
@@ -523,7 +676,9 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
     let mut dragging: Option<Group> = None;
     let mut strips: Vec<StripRects> = Vec::with_capacity(rects.len());
     for (i, (g, rect)) in rects.iter().copied().enumerate() {
-        let collapsed = app.ui.dock.is_collapsed(g);
+        let member_collapsed = app.ui.dock.is_collapsed(g);
+        let auto_folded = folded.contains(&g);
+        let collapsed = member_collapsed || auto_folded;
         let mut child = ui.new_child(egui::UiBuilder::new().id_salt(("dock-group", g.key())).max_rect(rect));
         child.set_clip_rect(rect.intersect(ui.clip_rect()));
         child.spacing_mut().item_spacing.y = if t.pro { 0.0 } else { 6.0 };
@@ -581,7 +736,17 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
                 crate::tab_strip::TabContextAction::CloseGroup => actions.push(Action::Close(g)),
             }
         }
-        if resp.strip.double_clicked() || resp.tab_double_clicked || (collapsed && resp.tab_clicked) {
+        // Evora build (patch LUM-18): a click on a strip or a tab asks for the group. One folded
+        // for want of room comes back on that click (another folds in its place) and its
+        // collapsed state is left alone; the second click of a double-click does not collapse it.
+        if comfort && (resp.tab_clicked || resp.strip.clicked()) {
+            asked.push(g);
+            if auto_folded {
+                recalled = Some(g);
+            }
+        }
+        let just_recalled = recalled_before.is_some_and(|(r, at)| r == g && now - at < RECALL_GRACE);
+        if !auto_folded && !just_recalled && (resp.strip.double_clicked() || resp.tab_double_clicked || (collapsed && resp.tab_clicked)) {
             actions.push(Action::ToggleCollapse(g));
             // A single click on a collapsed strip's tab expands the group as a peek: the next
             // click outside closes it again, with Auto-Collapse Iconic Panels on.
@@ -650,7 +815,12 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
                 crate::panel_docking::legacy_menu(app, ui, label);
             }
             if ui.button(if collapsed { tl!("Expand Panel Group") } else { tl!("Collapse Panel Group") }).clicked() {
-                actions.push(Action::ToggleCollapse(g));
+                // Evora build (patch LUM-18): a group folded for want of room is asked for.
+                if auto_folded {
+                    asked.push(g);
+                } else {
+                    actions.push(Action::ToggleCollapse(g));
+                }
                 ui.close();
             }
             let pos = order.iter().position(|x| *x == g).unwrap_or(0);
@@ -675,7 +845,7 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
             }
         });
         // Splitter in the gap below this group: resizes it, pushing the neighbouring groups.
-        if i + 1 < rects.len() && !collapsed && rects.iter().skip(i + 1).any(|(n, _)| !app.ui.dock.is_collapsed(*n)) {
+        if i + 1 < rects.len() && !collapsed && rects.iter().skip(i + 1).any(|(n, _)| !app.ui.dock.is_collapsed(*n) && !folded.contains(n)) {
             let gap = Rect::from_min_size(pos2(rect.left(), rect.bottom()), vec2(rect.width(), GAP)).expand2(vec2(0.0, 2.0));
             let sresp = ui.interact(gap, ui.id().with(("dock-splitter", g.key())), Sense::drag());
             if sresp.hovered() || sresp.dragged() {
@@ -683,7 +853,7 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
                 ui.painter().line_segment([gap.left_center(), gap.right_center()], Stroke::new(2.0, t.accent.gamma_multiply(0.7)));
             }
             if sresp.dragged() {
-                resize(&mut app.ui.dock, &heights, i, sresp.drag_delta().y);
+                resize_fit(&mut app.ui.dock, &heights, i, sresp.drag_delta().y, &folded, comfort);
             }
         }
     }
@@ -723,6 +893,9 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
             Action::ToggleCollapse(g) => {
                 let on = !app.ui.dock.is_collapsed(g);
                 app.ui.dock.set_collapsed(g, on);
+                if !on {
+                    touch_recent(app, g);
+                }
             }
             Action::Close(g) => *g.shown_mut(&mut app.ui.panels) = false,
             Action::CloseTab(g, tab) => close_tab(app, g, tab, t.pro),
@@ -739,6 +912,15 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
     {
         ui.ctx().data_mut(|d| {
             d.insert_temp(peek_id(), Some(g));
+        });
+    }
+    // Evora build (patch LUM-18): the groups asked for this frame go first among those kept open.
+    for g in asked {
+        touch_recent(app, g);
+    }
+    if let Some(g) = recalled {
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(recall_id(), (g, now));
         });
     }
     for (panel, anchor, before) in panel_moves {
@@ -779,11 +961,19 @@ fn drop_before(order: &[Group], rects: &[(Group, Rect)], dragged: Group, y: f32)
 /// splitter moves into shrink in turn, nearest first, each down to its minimum (#2573), and the
 /// group on the other side grows by what they gave. The filler absorbs its share implicitly,
 /// so the column height stays the same.
+#[cfg(test)]
 fn resize(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f32) {
+    resize_fit(layout, heights, i, dy, &[], false);
+}
+
+/// Evora build (patch LUM-18): the splitter drag above, with the groups in `folded` taken as
+/// collapsed ([`fold_to_fit`]) and, with `comfort` (the Evora themes), the neighbours shrinking
+/// down to [`Group::comfort_height`] instead of their minimum. Without them this is upstream's.
+fn resize_fit(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f32, folded: &[Group], comfort: bool) {
     if !dy.is_finite() || dy == 0.0 {
         return;
     }
-    let expanded = |k: &usize| heights.get(*k).is_some_and(|(g, _)| !layout.is_collapsed(*g));
+    let expanded = |k: &usize| heights.get(*k).is_some_and(|(g, _)| !layout.is_collapsed(*g) && !folded.contains(g));
     let filler = (0..heights.len()).rev().find(expanded);
     let Some(j) = (i + 1..heights.len()).find(expanded) else { return };
     if !expanded(&i) {
@@ -796,7 +986,7 @@ fn resize(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f32) 
     // The first drag pins the other groups at the heights they show, so groups still at their
     // defaults (which give way to the filler) don't shift while this one is resized.
     for (k, (o, oh)) in heights.iter().enumerate() {
-        if Some(k) != filler && !layout.is_collapsed(*o) {
+        if Some(k) != filler && !layout.is_collapsed(*o) && !folded.contains(o) {
             layout.heights.entry(*o).or_insert(*oh);
         }
     }
@@ -806,7 +996,8 @@ fn resize(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f32) 
             break;
         }
         let Some(&(o, oh)) = heights.get(k) else { continue };
-        let give = (oh - o.min_height()).max(0.0).min(left);
+        let floor = if comfort { o.comfort_height() } else { o.min_height() };
+        let give = (oh - floor).max(0.0).min(left);
         left -= give;
         if Some(k) != filler {
             layout.heights.insert(o, oh - give);
