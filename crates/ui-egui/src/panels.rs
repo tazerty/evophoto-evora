@@ -95,15 +95,21 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
     let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
     let sections = visible_sections(&app.session.prefs().toolbar.hidden);
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
-    let double = app.ui.panels.toolbar_double;
-    // Evora build (patch LUM-18): under the Evora themes a toolbar too short for one column takes
-    // two by itself, like the chevron's choice but without writing it, and goes back to one when
-    // the room returns. Whether one column fits is measured in the panel (below) and read here on
-    // the next frame, the panel's width being set before it is drawn.
+    let chosen = app.ui.panels.toolbar_double;
+    // Evora build (patch LUM-18): under the Evora themes a toolbar too short for its tools takes
+    // the columns it needs by itself (two, then three), like the chevron's choice but without
+    // writing it, and goes back when the room returns. How many columns the height asks for is
+    // measured in the panel (below) and read here on the next frame, the panel's width being set
+    // before it is drawn.
     let slots: usize = sections.iter().map(Vec::len).sum();
-    let fits_id = egui::Id::new("toolbar-one-column-fits");
-    let double = double || (t.slim() && ui.ctx().data(|d| d.get_temp::<bool>(fits_id)) == Some(false));
-    let w = if double { w1 + bx + 2.0 } else { w1 };
+    let columns_id = egui::Id::new("toolbar-columns-needed");
+    let needed: usize = if t.slim() { ui.ctx().data(|d| d.get_temp::<usize>(columns_id)).unwrap_or(1) } else { 1 };
+    let columns: usize = needed.max(if chosen { 2 } else { 1 }).clamp(1, 3);
+    let double = columns > 1;
+    // While the height imposes the columns the chevron has nothing to offer: it is neither drawn
+    // nor obeyed, and its place is kept so the tools do not move.
+    let forced = needed > 1;
+    let w = w1 + (columns as f32 - 1.0) * (bx + 2.0);
     crate::direction::start_panel("toolbar")
         .resizable(false)
         .exact_size(w)
@@ -114,10 +120,12 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
             // Evora build (patch LUM-18): a 24 pt target (WCAG 2.5.8) under the Evora themes.
             let (cr, resp) = ui.allocate_exact_size(vec2(bx, if t.slim() { 24.0 } else { 14.0 }), Sense::click());
             let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
-            icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
-            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
-            if resp.clicked() {
-                app.ui.panels.toolbar_double = !double;
+            if !forced {
+                icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
+            }
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, !forced, tl!("Toolbar")));
+            if resp.clicked() && !forced {
+                app.ui.panels.toolbar_double = !chosen;
             }
             ui.add_space(4.0);
             // Subtle violet wash at the bottom of the toolbar.
@@ -155,13 +163,21 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
                     + 6.0
             };
             let footer = footer_for(double);
-            // Evora build (patch LUM-18): one column needs the header (a 24 pt chevron and its
-            // spacing), a row per slot and the Edit Toolbar button (3 pt apart), and its footer.
+            // Evora build (patch LUM-18): what the tools need in so many columns: the header (a
+            // 24 pt chevron and its spacing), a row per line of slots and the Edit Toolbar button
+            // (3 pt apart), and the footer. The fewest columns that show every tool without
+            // scrolling, three at most; the panel's height does not depend on the answer.
             if t.slim() {
-                let one_column = 32.0 + (slots as f32 + 1.0) * (bx + 3.0) + footer_for(false);
-                let fits = full.height() >= one_column;
-                if ctx.data(|d| d.get_temp::<bool>(fits_id)) != Some(fits) {
-                    ctx.data_mut(|d| d.insert_temp(fits_id, fits));
+                let needs = |columns: usize| 32.0 + (slots.div_ceil(columns.max(1)) as f32 + 1.0) * (bx + 3.0) + footer_for(columns > 1);
+                let fit: usize = if full.height() >= needs(1) {
+                    1
+                } else if full.height() >= needs(2) {
+                    2
+                } else {
+                    3
+                };
+                if ctx.data(|d| d.get_temp::<usize>(columns_id)) != Some(fit) {
+                    ctx.data_mut(|d| d.insert_temp(columns_id, fit));
                     ctx.request_repaint();
                 }
             }
@@ -183,7 +199,8 @@ pub fn toolbar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
                             ui.painter().line_segment([r.left_center() + vec2(8.0, 0.0), r.right_center() - vec2(8.0, 0.0)], Stroke::new(1.0, t.separator));
                             ui.add_space(4.0);
                         }
-                        let rows: Vec<&[(usize, Vec<Tool>)]> = if double { section.chunks(2).collect() } else { section.chunks(1).collect() };
+                        // Evora build (patch LUM-18): one, two or three slots a row (never zero).
+                        let rows: Vec<&[(usize, Vec<Tool>)]> = section.chunks(columns).collect();
                         for row in rows {
                             ui.horizontal(|ui| {
                                 for (slot_index, slot) in row.iter() {
