@@ -183,8 +183,16 @@ pub(crate) fn command(app: &mut EvoPhotoApp, id: &str, params: &Value) -> Option
                 .and_then(|action| apply_action(app, action)),
         );
     }
+    // Evora build (patch LUM-18): under the Evora themes the native dock is the one a member's
+    // gesture opens and closes panels in ("a panel is usable or folded, never squeezed": the
+    // custom dock squeezes). A panel menu's Close closes the tab there.
+    if id == "window.panel.close" && app.ui.theme.is_slim() && app.ui.docking.is_none() {
+        return Some(native_close(app, params));
+    }
     if let Some(panel) = id.strip_prefix("window.panel.").or_else(|| id.strip_prefix("window.toggle.")).and_then(normalize) {
-        if app.ui.docking.is_none() && panel != "brushes" {
+        // Evora build (patch LUM-18): and Brushes stays in the native dock like the other panels
+        // (the Window menu, the Brush Settings panel's Brushes button), through `window.toggle.brushes`.
+        if app.ui.docking.is_none() && (panel != "brushes" || app.ui.theme.is_slim()) {
             return None;
         }
         let showing = app.ui.docking.as_ref().is_some_and(|layout| layout.contains(&panel.to_string()));
@@ -207,6 +215,22 @@ pub(crate) fn command(app: &mut EvoPhotoApp, id: &str, params: &Value) -> Option
         _ => return None,
     };
     Some(change(app, operation, params))
+}
+
+/// Evora build (patch LUM-18): `window.panel.close` in the native dock, as the tab strip's own
+/// Close does it ([`crate::dock::close_tab`]): the tab is hidden, and its group with its last tab.
+fn native_close(app: &mut EvoPhotoApp, params: &Value) -> Result<Value, String> {
+    if app.session.prefs().workspace_locked {
+        return Err("workspace is locked".into());
+    }
+    let panel = params.get("panel").and_then(Value::as_str).and_then(normalize).ok_or("panel must name a registered panel")?;
+    let pro = app.ui.theme.is_pro();
+    if let Some((_, label, group)) = PANELS.iter().find(|p| p.0 == panel)
+        && let Some(tab) = group.tabs(pro).iter().position(|name| name == label)
+    {
+        crate::dock::close_tab(app, *group, tab, pro);
+    }
+    Ok(json!({"panel": panel}))
 }
 
 pub(crate) fn checked(app: &EvoPhotoApp, id: &str) -> Option<bool> {

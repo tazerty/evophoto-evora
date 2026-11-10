@@ -710,9 +710,14 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
                     .show(ui, |ui| body(app, ui, g, tab));
             }
         });
-        for (index, response) in &resp.responses {
-            if let Some(panel) = tabs.get(*index) {
-                crate::panel_docking::legacy_tab(app, &mut child, panel, response);
+        // Evora build (patch LUM-18): under the Evora themes a tab dragged off the column does not
+        // start the custom dock, which squeezes its panels in a short column instead of folding
+        // them; the drag moves the group, as a drag of the strip does.
+        if !comfort {
+            for (index, response) in &resp.responses {
+                if let Some(panel) = tabs.get(*index) {
+                    crate::panel_docking::legacy_tab(app, &mut child, panel, response);
+                }
             }
         }
         strips.push(StripRects {
@@ -813,7 +818,9 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
                 crate::actions::panel_menu(app, ui);
                 ui.separator();
             }
-            if let Some(label) = tabs.get(sel) {
+            // Evora build (patch LUM-18): no Float Panel or Group with under the Evora themes; both
+            // hand the column to the custom dock.
+            if !comfort && let Some(label) = tabs.get(sel) {
                 crate::panel_docking::legacy_menu(app, ui, label);
             }
             if ui.button(if collapsed { tl!("Expand Panel Group") } else { tl!("Collapse Panel Group") }).clicked() {
@@ -861,7 +868,10 @@ pub fn show(app: &mut EvoPhotoApp, ui: &mut egui::Ui, shown: &[Group], mut body:
     }
     let mut panel_moves = Vec::new();
     for (from, tab, position) in tab_drops {
-        let target = strips.iter().find(|strip| strip.group != from && strip.area.contains(position));
+        // Evora build (patch LUM-18): under the Evora themes a tab dropped on another group's strip
+        // moves its group there, like a drop anywhere else; it does not regroup the tab, which
+        // hands the column to the custom dock.
+        let target = if comfort { None } else { strips.iter().find(|strip| strip.group != from && strip.area.contains(position)) };
         if let Some(target) = target {
             let pro = t.pro;
             let source = from.tabs(pro).get(tab).and_then(|label| crate::panel_docking::normalize(label));

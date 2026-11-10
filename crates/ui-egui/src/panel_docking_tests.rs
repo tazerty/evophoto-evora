@@ -819,3 +819,33 @@ fn the_dock_can_be_as_wide_as_the_window_allows() {
         assert_eq!((*range.start(), *range.end()), (crate::panels::DOCK_MIN_WIDTH, max), "{window}");
     }
 }
+
+// Evora build (patch LUM-18): under the Evora themes a member's gesture stays in the native dock.
+
+#[test]
+fn evora_keeps_brushes_and_a_panel_menus_close_in_the_native_dock() {
+    for theme in [crate::theme::ThemeKind::Evora, crate::theme::ThemeKind::EvoraLight] {
+        let mut app = app();
+        app.ui.theme = theme;
+        let ctx = egui::Context::default();
+        assert!(crate::menus::invoke(&mut app, &ctx, "window.panel.brushes", json!({})).is_ok());
+        assert!(app.ui.docking.is_none(), "{theme:?}: Brushes opens in the native dock");
+        assert!(app.ui.panels.brushes, "{theme:?}");
+        assert_eq!(app.ui.dock_fit.recent.first(), Some(&Group::Brushes), "{theme:?}: and counts as asked for");
+        // A panel menu's Close hides the tab there; Actions and Layer Comps keep the group shown.
+        app.ui.panels.history = true;
+        app.run("window.panel.close", json!({"panel":"history"})).unwrap();
+        assert!(app.ui.docking.is_none(), "{theme:?}");
+        assert!(app.ui.panels.history, "{theme:?}");
+        let left: Vec<&str> = app.ui.dock.visible_tabs(Group::History, true).iter().map(|(_, name)| *name).collect();
+        assert_eq!(left, vec!["Actions", "Layer Comps"], "{theme:?}");
+        // Locked: nothing closes.
+        app.session.prefs.edit(|p| p.workspace_locked = true);
+        assert!(app.run("window.panel.close", json!({"panel":"actions"})).is_err(), "{theme:?}");
+        assert!(app.ui.docking.is_none(), "{theme:?}");
+    }
+    // Upstream's themes still hand a panel menu's Close to the custom dock.
+    let mut app = app();
+    app.run("window.panel.close", json!({"panel":"layers"})).unwrap();
+    assert!(app.ui.docking.is_some());
+}
