@@ -450,6 +450,13 @@ pub struct DockFit {
     /// ([`fold_to_fit`]). Never written to [`DockLayout::collapsed`]: they come back on their own
     /// when the column grows.
     pub folded: Vec<Group>,
+    /// The revision of Evora's layout the remembered layout was made under (`evoraLayout` in
+    /// `panelLayout`; 0 for a layout from before revisions, or from upstream). See
+    /// `menus::adopt_evora_workspace`.
+    pub revision: u32,
+    /// The remembered layout was checked against Evora's revision this session (once, the first
+    /// time an Evora theme draws the dock).
+    pub adopted: bool,
 }
 
 /// Evora build (patch LUM-18): "a panel is usable or folded, never squeezed". The groups of
@@ -1011,8 +1018,14 @@ fn resize_fit(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f
 }
 
 /// What `prefs.panelLayout` holds: the live layout and open panels.
+/// Evora build (patch LUM-18): and, once Evora's layout was adopted, its revision (`evoraLayout`);
+/// the key is absent until then, so upstream's themes remember what they always did.
 fn snapshot(app: &EvoPhotoApp) -> Value {
-    json!({"workspace": app.ui.workspace, "panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock, "timelineOpen": app.ui.timeline.open, "docking": app.ui.docking, "dockingHidden": app.ui.docking_hidden, "dockingCollapsed": app.ui.docking_collapsed})
+    let mut v = json!({"workspace": app.ui.workspace, "panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock, "timelineOpen": app.ui.timeline.open, "docking": app.ui.docking, "dockingHidden": app.ui.docking_hidden, "dockingCollapsed": app.ui.docking_collapsed});
+    if app.ui.dock_fit.revision > 0 {
+        v["evoraLayout"] = json!(app.ui.dock_fit.revision);
+    }
+    v
 }
 
 /// Remember the layout in the preferences once the user lets go of the mouse (Workspace ›
@@ -1034,6 +1047,9 @@ pub fn restore(app: &mut EvoPhotoApp) {
     }
     let saved = app.session.prefs().panel_layout.clone();
     apply(app, &saved);
+    // Evora build (patch LUM-18): the revision of Evora's layout this one was remembered under
+    // (absent or unreadable: 0). Read here only: a saved workspace applied later carries none.
+    app.ui.dock_fit.revision = saved.get("evoraLayout").and_then(Value::as_u64).and_then(|r| u32::try_from(r).ok()).unwrap_or(0);
     // The floating Brush Settings window is transient, not a dock panel: remembering the
     // workspace must not leave it open on a fresh launch, especially with no document.
     // Explicit workspace switches still use `apply` and keep their stored panel visibility.

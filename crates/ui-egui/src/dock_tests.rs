@@ -1450,3 +1450,110 @@ fn evora_groups_come_back_when_the_column_grows() {
         assert!(r.height() >= g.comfort_height(), "{g:?}: {r:?}");
     }
 }
+
+// Evora build (patch LUM-18): Evora's Essentials, second version, and its one-time adoption.
+
+#[test]
+fn evora_essentials_opens_properties_over_layers_and_hides_the_rest() {
+    for theme in [ThemeKind::Evora, ThemeKind::EvoraLight] {
+        let (mut app, _, _) = app_with_layers();
+        let ctx = egui::Context::default();
+        app.ui.theme = theme;
+        crate::menus::invoke(&mut app, &ctx, "window.workspace.photography", json!({})).unwrap();
+        app.ui.dock_fit.recent = vec![Group::History];
+        crate::menus::invoke(&mut app, &ctx, "window.workspace.essentials", json!({})).unwrap();
+        let p = &app.ui.panels;
+        assert_eq!((p.properties, p.layers), (true, true), "{theme:?}");
+        assert_eq!((p.navigator, p.color, p.history, p.brushes, p.character), (false, false, false, false, false), "{theme:?}");
+        assert_eq!(app.ui.dock.order().last(), Some(&Group::Layers), "{theme:?}: Layers fills the column");
+        assert!(app.ui.dock.collapsed.is_empty() && app.ui.dock.heights.is_empty() && app.ui.docking.is_none(), "{theme:?}");
+        let navigator: Vec<&str> = app.ui.dock.visible_tabs(Group::Navigator, true).iter().map(|(_, name)| *name).collect();
+        assert_eq!(navigator, vec!["Navigator", "Histogram"], "{theme:?}");
+        assert_eq!(app.ui.dock_tabs.navigator, 0, "{theme:?}");
+        assert!(!app.ui.layers_panel_options.show_filters, "{theme:?}: the filter bar is off in this workspace");
+        assert!(app.ui.dock_fit.recent.is_empty(), "{theme:?}");
+        assert_eq!(app.ui.dock_fit.revision, crate::menus::EVORA_LAYOUT_REVISION, "{theme:?}");
+        // A group brought back from the rail sits above Layers, which keeps filling the column.
+        rail_click(&mut app, Group::History, true);
+        let shown: Vec<Group> = app.ui.dock.order().into_iter().filter(|g| g.shown(&app.ui.panels)).collect();
+        assert_eq!(shown, vec![Group::Properties, Group::History, Group::Layers], "{theme:?}");
+    }
+}
+
+#[test]
+fn upstream_themes_keep_their_essentials_and_remember_no_revision() {
+    let (mut app, _, _) = app_with_layers();
+    let ctx = egui::Context::default();
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.essentials", json!({})).unwrap();
+    crate::menus::adopt_evora_workspace(&mut app);
+    let p = &app.ui.panels;
+    assert_eq!((p.navigator, p.color, p.layers, p.history, p.properties), (false, true, true, false, true));
+    assert_eq!(app.ui.dock, DockLayout::default());
+    assert!(app.ui.layers_panel_options.show_filters);
+    assert_eq!(app.ui.dock_fit, DockFit::default());
+    assert!(snapshot(&app).get("evoraLayout").is_none());
+}
+
+/// A layout remembered before this revision: four expanded groups, one collapsed, one dragged.
+fn remembered_before(app: &mut EvoPhotoApp) {
+    app.ui.dock.order = vec![Group::Navigator, Group::Properties, Group::History, Group::Layers, Group::Color];
+    app.ui.dock.set_collapsed(Group::Color, true);
+    app.ui.dock.heights.insert(Group::Properties, 120.0);
+    app.ui.panels.navigator = true;
+    app.ui.panels.history = true;
+}
+
+#[test]
+fn evora_adopts_its_essentials_once_and_leaves_a_locked_workspace_alone() {
+    let (mut app, _, _) = app_with_layers();
+    remembered_before(&mut app);
+    let mut h = harness(app, vec2(1200.0, 800.0), ThemeKind::Evora);
+    let drawn: Vec<Group> = last_rects(&h.ctx).iter().map(|(g, _)| *g).collect();
+    assert_eq!(drawn, vec![Group::Properties, Group::Layers]);
+    assert_eq!(h.state().ui.workspace, "Essentials");
+    assert_eq!(h.state().ui.dock_fit.revision, crate::menus::EVORA_LAYOUT_REVISION);
+    assert_eq!(snapshot(h.state()).get("evoraLayout"), Some(&json!(crate::menus::EVORA_LAYOUT_REVISION)));
+    // Once: what the member opens afterwards stays.
+    rail_click(h.state_mut(), Group::Navigator, true);
+    h.run_steps(3);
+    assert!(h.state().ui.panels.navigator);
+    assert!(last_rects(&h.ctx).iter().any(|(g, _)| *g == Group::Navigator));
+
+    // Locked: the layout is left exactly as it is, and no revision is remembered.
+    let (mut app, _, _) = app_with_layers();
+    remembered_before(&mut app);
+    app.session.prefs.edit(|p| p.workspace_locked = true);
+    let before = app.ui.dock.clone();
+    let h = harness(app, vec2(1200.0, 800.0), ThemeKind::Evora);
+    assert_eq!(h.state().ui.dock, before);
+    assert!(h.state().ui.panels.navigator && h.state().ui.panels.history && h.state().ui.panels.color);
+    assert_eq!(h.state().ui.dock_fit.revision, 0);
+    assert!(snapshot(h.state()).get("evoraLayout").is_none());
+}
+
+#[test]
+fn a_layout_remembered_under_evoras_revision_is_kept() {
+    let mut first = EvoPhotoApp::new(evophoto_engine::Session::new(), crate::Services::default());
+    first.ui.theme = ThemeKind::Evora;
+    crate::menus::apply_workspace(&mut first);
+    first.ui.panels.history = true;
+    let saved = snapshot(&first);
+    assert_eq!(saved.get("evoraLayout"), Some(&json!(crate::menus::EVORA_LAYOUT_REVISION)));
+    first.session.prefs.edit(|p| {
+        p.workspace.remember_workspace_changes = true;
+        p.panel_layout = saved.clone();
+    });
+    let persisted = first.session.prefs_to_json();
+
+    let mut session = evophoto_engine::Session::new();
+    session.load_prefs_json(&persisted).unwrap();
+    let mut next = EvoPhotoApp::new(session, crate::Services::default());
+    restore(&mut next);
+    assert_eq!(next.ui.dock_fit.revision, crate::menus::EVORA_LAYOUT_REVISION);
+    next.ui.theme = ThemeKind::Evora;
+    crate::menus::adopt_evora_workspace(&mut next);
+    assert!(next.ui.panels.history, "what the member opened since is kept");
+    // A saved workspace applied later carries no revision: the adoption does not come back.
+    apply(&mut next, &json!({"panels": crate::state::Panels::default()}));
+    assert_eq!(next.ui.dock_fit.revision, crate::menus::EVORA_LAYOUT_REVISION);
+}

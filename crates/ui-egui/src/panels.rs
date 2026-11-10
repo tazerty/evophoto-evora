@@ -1746,8 +1746,8 @@ pub fn status_bar(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
 // ----------------------------------------------------------------------------- dock
 
 pub fn right_dock(app: &mut EvoPhotoApp, ui: &mut egui::Ui) {
-    // Evora build (patch LUM-18): an untouched upstream Essentials becomes Evora's, once.
-    crate::menus::seed_evora_workspace(app, ui.ctx());
+    // Evora build (patch LUM-18): a layout remembered before Evora's current one becomes it, once.
+    crate::menus::adopt_evora_workspace(app);
     // Even legacy destinations must discard gestures captured by an earlier workspace.
     let customized = crate::panel_docking::show(app, ui);
     let t = Tokens::get(ui.ctx());

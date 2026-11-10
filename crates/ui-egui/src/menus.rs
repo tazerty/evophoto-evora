@@ -1687,6 +1687,8 @@ pub fn apply_workspace(app: &mut EvoPhotoApp) {
     }
     // Presets use the default group order, heights and tabs (Reset brings everything back).
     app.ui.dock = Default::default();
+    // Evora build (patch LUM-18): and no group is remembered as asked for (`dock::fold_to_fit`).
+    app.ui.dock_fit.recent.clear();
     app.ui.docking_reveal = None;
     app.ui.docking_generation = app.ui.docking_generation.wrapping_add(1);
     app.ui.docking = None;
@@ -1727,59 +1729,56 @@ fn is_essentials(workspace: &str) -> bool {
     !matches!(workspace, "Photography" | "Painting" | "Graphic and Web" | "Pixel Art" | "Motion")
 }
 
-/// Evora build (patch LUM-18): Essentials under the Evora themes. The Navigator group first, on
-/// its Navigator tab with Histogram one click away (Info hidden; Window › Info brings it back):
-/// on the web the histogram is counted on the UI thread, every 250 ms while the document
-/// changes, so it is not shown by default. Then the docked Properties, History, and Layers, the
-/// last expanded group, which fills the column as upstream's Essentials has it (#147); Color
-/// present but collapsed to its tab strip. Order, tab and collapse only: no new panel, label or
-/// height.
+/// Evora build (patch LUM-18): Essentials under the Evora themes, second version. Two panels
+/// only: the docked Properties (Properties, Adjustments) over Layers (Layers, Channels, Paths),
+/// Layers last in the order so it stays the group that fills the column. Navigator, Color,
+/// History, Brushes and Character are hidden (no strip) until the rail or the Window menu opens
+/// them; the order places each above Layers. The Navigator group opens on its Navigator tab with
+/// Histogram one click away and Info hidden (the Window menu brings it back): on the web the
+/// histogram is counted on the UI thread, every 250 ms while the document changes. The Layers
+/// filter bar is off (the panel menu's Filter Options brings it back), which leaves the list its
+/// height. Order, visibility and hidden tab only: no new panel, label or height.
 fn evora_essentials(app: &mut EvoPhotoApp) {
     use crate::dock::Group;
     let pro = app.ui.theme.is_pro();
     let dock = &mut app.ui.dock;
-    dock.order = vec![Group::Navigator, Group::Properties, Group::History, Group::Layers, Group::Color];
-    dock.set_collapsed(Group::Color, true);
+    dock.order = vec![Group::Navigator, Group::Color, Group::Properties, Group::History, Group::Brushes, Group::Character, Group::Layers];
     dock.hide_tab(Group::Navigator, 2, pro);
     app.ui.dock_tabs.navigator = 0;
     let p = &mut app.ui.panels;
-    p.navigator = true;
     p.properties = true;
     p.layers = true;
-    p.history = true;
-    p.color = true;
+    p.navigator = false;
+    p.color = false;
+    p.history = false;
+    p.brushes = false;
+    p.character = false;
+    app.ui.dock_fit.revision = EVORA_LAYOUT_REVISION;
+    if app.ui.layers_panel_options.show_filters {
+        app.ui.layers_panel_options.show_filters = false;
+        crate::layers_panel_ui::persist_options(app);
+    }
 }
+
+/// Evora build (patch LUM-18): the revision of Evora's Essentials ([`evora_essentials`]). A layout
+/// remembered under an older one (`evoraLayout` in `panelLayout`; none: 0) is replaced once.
+pub(crate) const EVORA_LAYOUT_REVISION: u32 = 2;
 
 /// Evora build (patch LUM-18): once a session, the first time an Evora theme draws the dock, a
-/// layout still exactly upstream's default Essentials (what a member who never moved a panel has
-/// remembered in `panelLayout`) becomes Evora's; any layout the member changed, or locked
-/// (Window › Workspace › Lock Workspace), is kept.
-pub(crate) fn seed_evora_workspace(app: &mut EvoPhotoApp, ctx: &egui::Context) {
-    let seeded = egui::Id::new("evora-workspace-seeded");
-    if !app.ui.theme.is_slim() || ctx.data(|d| d.get_temp::<bool>(seeded)).unwrap_or(false) {
+/// layout remembered before the current revision of Evora's Essentials (upstream's default,
+/// Evora's earlier one, or anything the member arranged since, a custom dock included) becomes
+/// Evora's Essentials, and the revision is remembered with it so this happens once. A locked
+/// workspace (the Window menu's Lock Workspace) is left exactly as it is.
+pub(crate) fn adopt_evora_workspace(app: &mut EvoPhotoApp) {
+    if !app.ui.theme.is_slim() || app.ui.dock_fit.adopted {
         return;
     }
-    ctx.data_mut(|d| d.insert_temp(seeded, true));
-    if upstream_essentials(app) {
-        evora_essentials(app);
+    app.ui.dock_fit.adopted = true;
+    if app.ui.dock_fit.revision >= EVORA_LAYOUT_REVISION || app.session.prefs().workspace_locked {
+        return;
     }
-}
-
-/// The dock exactly as upstream's Essentials leaves it (the Color group's selected tab aside: its
-/// index swaps meaning with the theme).
-fn upstream_essentials(app: &EvoPhotoApp) -> bool {
-    let ui = &app.ui;
-    let p = &ui.panels;
-    is_essentials(&ui.workspace)
-        && !app.session.prefs().workspace_locked
-        && !app.session.prefs().workspaces.contains_key(&ui.workspace)
-        && ui.dock == crate::dock::DockLayout::default()
-        && ui.dock_tabs == crate::state::DockTabs { color: ui.dock_tabs.color, ..Default::default() }
-        && ui.docking.is_none()
-        && ui.docking_hidden.is_empty()
-        && ui.docking_collapsed.is_empty()
-        && !ui.timeline.open
-        && (p.navigator, p.color, p.layers, p.history, p.properties, p.character, p.brushes) == (false, true, true, false, true, false, false)
+    app.ui.workspace = "Essentials".into();
+    apply_workspace(app);
 }
 
 #[cfg(test)]
