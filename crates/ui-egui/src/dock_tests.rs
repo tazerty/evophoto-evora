@@ -1275,8 +1275,8 @@ fn folded_at(avail: f32, recent: &[Group]) -> Vec<Group> {
     fold_to_fit(&EVORA_FOUR, &[Group::Color], avail, 28.0, GAP, recent)
 }
 
-/// Comforts: Navigator 170, Properties 200, History 160, Layers 250; Color's strip 28; four gaps.
-/// All four need 832 pt, without Navigator 690, without History too 558, Layers alone 386.
+/// Comforts: Navigator 170, Properties 180, History 160, Layers 240; Color's strip 28; four gaps.
+/// All four need 802 pt, without Navigator 660, without History too 528, Layers alone 376.
 #[test]
 fn a_short_column_folds_groups_until_the_others_have_their_comfort() {
     let all_but_layers = vec![Group::Navigator, Group::History, Group::Properties];
@@ -1337,6 +1337,15 @@ fn a_dragged_height_gives_way_and_never_folds_a_group() {
     l.heights.insert(Group::Properties, 80.0);
     let hs = l.heights_fit(&shown, 900.0, 28.0, &[], true);
     assert_eq!(hs[0].1, Group::Properties.comfort_height(), "{hs:?}");
+}
+
+#[test]
+fn evoras_two_essential_panels_fit_the_column_of_a_small_window() {
+    let shown = [Group::Properties, Group::Layers];
+    // The dock column of a 1280 x 720 window is about 430 pt tall.
+    assert!(fold_to_fit(&shown, &[], 430.0, 28.0, GAP, &[]).is_empty());
+    let hs = DockLayout::default().heights_fit(&shown, 430.0, 28.0, &[], true);
+    assert_eq!(hs, vec![(Group::Properties, 180.0), (Group::Layers, 244.0)]);
 }
 
 #[test]
@@ -1433,13 +1442,14 @@ fn evora_folds_what_the_column_cannot_show_and_the_rail_brings_a_group_back() {
         h.run_steps(3);
         assert_eq!(expanded_in(&h), vec![Group::Navigator], "{theme:?}: {:?}", last_rects(&h.ctx));
         assert!(h.state().ui.dock.collapsed.is_empty(), "{theme:?}");
-        // On an expanded group the rail collapses it, as before; the last one asked for returns.
+        // On an expanded group the rail collapses it, as before; the last one asked for returns,
+        // and Properties with it: their two comforts and four strips (458 pt) fit the column.
         rail_click(h.state_mut(), Group::Layers, true);
         h.run_steps(3);
         rail_click(h.state_mut(), Group::Layers, true);
         h.run_steps(3);
         assert!(h.state().ui.dock.is_collapsed(Group::Layers), "{theme:?}");
-        assert_eq!(expanded_in(&h), vec![Group::Navigator], "{theme:?}: {:?}", last_rects(&h.ctx));
+        assert_eq!(expanded_in(&h), vec![Group::Properties, Group::Navigator], "{theme:?}: {:?}", last_rects(&h.ctx));
         // Nothing drawn runs past the column.
         let column = last_rects(&h.ctx).iter().map(|(_, r)| r.bottom()).fold(0.0, f32::max);
         assert!(column <= 480.0, "{theme:?}: {column}");

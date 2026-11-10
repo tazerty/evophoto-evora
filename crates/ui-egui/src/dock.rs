@@ -108,10 +108,12 @@ impl Group {
     /// Evora build (patch LUM-18): the height (points, tab strip included) under which a group is
     /// not usable. Under the Evora themes an expanded group gets at least this much, and a group
     /// the column has no such room for is folded to its tab strip instead ([`fold_to_fit`]).
+    /// Properties and Layers, the two panels of Evora's Essentials, fit together with their gap in
+    /// 426 pt: the column of a 1280 x 720 window (about 430 pt) shows both.
     pub fn comfort_height(self) -> f32 {
         match self {
-            Group::Layers => 250.0,
-            Group::Properties => 200.0,
+            Group::Layers => 240.0,
+            Group::Properties => 180.0,
             Group::Character => 220.0,
             Group::Color => 180.0,
             Group::Navigator => 170.0,
