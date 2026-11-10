@@ -1780,6 +1780,9 @@ pub(crate) fn adopt_evora_workspace(app: &mut EvoPhotoApp) {
     }
     app.ui.workspace = "Essentials".into();
     apply_workspace(app);
+    // A saved workspace of that name restores its own layout and never reaches the preset: the
+    // revision is set here too, so the adoption still happens once and not at every launch.
+    app.ui.dock_fit.revision = EVORA_LAYOUT_REVISION;
     if app.ui.dock_fit.revision >= EVORA_LAYOUT_REVISION
         && app.session.prefs().workspace.remember_workspace_changes
         && app.ui.layers_panel_options.show_filters
