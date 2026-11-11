@@ -1350,7 +1350,24 @@ fn evoras_two_essential_panels_fit_the_column_of_a_small_window() {
     // The dock column of a 1280 x 720 window is about 430 pt tall.
     assert!(fold_to_fit(&shown, &[], 430.0, 28.0, GAP, &[]).is_empty());
     let hs = DockLayout::default().heights_fit(&shown, 430.0, 28.0, &[], true);
-    assert_eq!(hs, vec![(Group::Properties, 180.0), (Group::Layers, 244.0)]);
+    assert_eq!(hs, vec![(Group::Properties, 184.0), (Group::Layers, 240.0)]);
+}
+
+#[test]
+fn properties_keeps_its_default_height_while_the_column_has_room() {
+    let shown = [Group::Properties, Group::Layers];
+    let l = DockLayout::default();
+    let default = Group::Properties.default_height();
+    let room = default + GAP + Group::Layers.comfort_height();
+    // The filler asks for its comfort only: Properties is not held at its floor above a Layers
+    // list with room to spare, and Layers takes what a taller column adds.
+    for avail in [room, 590.0, 700.0, 900.0] {
+        let hs = l.heights_fit(&shown, avail, 28.0, &[], true);
+        assert_eq!(hs, vec![(Group::Properties, default), (Group::Layers, avail - GAP - default)], "at {avail}");
+    }
+    // Below that, Properties gives way down to its comfort and Layers keeps its own.
+    let hs = l.heights_fit(&shown, room - 30.0, 28.0, &[], true);
+    assert_eq!(hs, vec![(Group::Properties, default - 30.0), (Group::Layers, Group::Layers.comfort_height())]);
 }
 
 #[test]

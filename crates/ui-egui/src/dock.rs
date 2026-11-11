@@ -109,7 +109,9 @@ impl Group {
     /// not usable. Under the Evora themes an expanded group gets at least this much, and a group
     /// the column has no such room for is folded to its tab strip instead ([`fold_to_fit`]).
     /// Properties and Layers, the two panels of Evora's Essentials, fit together with their gap in
-    /// 426 pt: the column of a 1280 x 720 window (about 430 pt) shows both.
+    /// 426 pt: the column of a 1280 x 720 window (about 430 pt) shows both. It is also what the
+    /// filling group asks for before the groups above it give up their default heights
+    /// ([`DockLayout::heights_fit`]): a taller column goes to them first, the filler takes the rest.
     pub fn comfort_height(self) -> f32 {
         match self {
             Group::Layers => 240.0,
@@ -372,8 +374,11 @@ impl DockLayout {
     /// as their tab strip ([`fold_to_fit`]) and, with `comfort` (the Evora themes), every expanded
     /// group kept at [`Group::comfort_height`] or more: it is the floor both passes give way down
     /// to, and the filler takes what is left instead of running past the column when even its
-    /// comfort does not fit (its body scrolls). Without `folded` and `comfort` this is upstream's
-    /// layout, unchanged.
+    /// comfort does not fit (its body scrolls). Under `comfort` the filler asks for its comfort
+    /// only, not for [`Group::preferred_fill`]: the groups above it keep their default heights
+    /// while the column has room for them and for the filler's comfort (Properties is not held at
+    /// its floor above a Layers list with room to spare), and give way below that. Without
+    /// `folded` and `comfort` this is upstream's layout, unchanged.
     pub fn heights_fit(&self, shown: &[Group], avail: f32, strip: f32, folded: &[Group], comfort: bool) -> Vec<(Group, f32)> {
         let avail = if avail.is_finite() { avail.max(0.0) } else { 0.0 };
         let closed = |g: Group| self.is_collapsed(g) || folded.contains(&g);
@@ -396,7 +401,7 @@ impl DockLayout {
         if let Some(f) = filler {
             let gaps = GAP * shown.len().saturating_sub(1) as f32;
             let min_fill = shown.get(f).map_or(0.0, |g| if comfort { g.comfort_height() } else { g.min_height() });
-            let pref_fill = shown.get(f).map_or(0.0, |g| if comfort { g.preferred_fill().max(g.comfort_height()) } else { g.preferred_fill() });
+            let pref_fill = shown.get(f).map_or(0.0, |g| if comfort { g.comfort_height() } else { g.preferred_fill() });
             let used: f32 = hs.iter().sum::<f32>() + gaps;
             let mut deficit = (used + pref_fill - avail).max(0.0);
             for i in (0..f).rev() {
